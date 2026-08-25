@@ -66,6 +66,7 @@ guidance does not drift from the router.
 - `$OMARCHY_PATH` is set at the top level by the uwsm session environment and is always available to Omarchy runtime code.
 - Commands in `bin/` and Quickshell QML should rely on `$OMARCHY_PATH` / `Quickshell.env("OMARCHY_PATH")`; do not derive fallback paths from `HOME`, `Quickshell.shellDir`, or re-export/default `OMARCHY_PATH` manually.
 
+<<<<<<< HEAD
 # Platforms
 
 Omarchy runs on x86 and aarch64 (ARM). A platform name is the CPU architecture, then a hardware family only when that family needs handling of its own:
@@ -92,6 +93,15 @@ Where platform code lives:
 - Boot chains Omarchy can't drive generically: a platform package behind `omarchy-lifecycle-dispatch` ([`docs/lifecycle-dispatch.md`](docs/lifecycle-dispatch.md)). Platforms that boot Limine with UKIs like x86 keep the generic path.
 
 The experience should be the same on every platform. When a package or feature is missing or broken on one, the default is to get it fixed upstream (an aarch64 build, a bug report, a patch to the maintainer) and leave the gap visible meanwhile, not to paper over it. When asked for a platform workaround, say so and propose the upstream fix first. Hiding a menu entry or skipping a package is fine only for things that can't exist there (an x86 guest VM, an x86-only proprietary binary). Alternative packages and platform-only replacements are a last resort, used only when upstream can't or won't fix it, with the reason written next to the code.
+=======
+# Editions
+
+Omarchy ships a desktop edition and a headless server edition from this repo. The edition is chosen at install time and recorded in `/etc/omarchy-edition`; read it with `omarchy-edition` or gate on the `omarchy-edition-server` / `omarchy-edition-desktop` predicates.
+
+A new migration or refresh command that touches the compositor, the shell, or GUI config must gate on the edition. Anything the two editions share must not.
+
+[`docs/editions.md`](docs/editions.md) covers the marker, the two package lists, and the gating rules.
+>>>>>>> b1c300878 (Add the server edition package list and the gating rules)
 
 # Privileged Commands
 
