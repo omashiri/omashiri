@@ -73,6 +73,7 @@ networkmanager
 jq
 kernel-modules-hook
 lazygit
+lazydocker
 less
 libsecret
 libvips
