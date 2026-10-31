@@ -8,18 +8,34 @@ edition_file=${OMARCHY_EDITION_FILE:-/etc/omarchy-edition}
 # desktop. Defaulting keeps the predicates answerable on machines the installer
 # never stamped.
 if [[ ! -e $edition_file ]]; then
-  echo "desktop"
-  exit 0
+  edition="desktop"
+else
+  # Strip all whitespace including CRLF
+  edition=$(tr -d '[:space:]' <"$edition_file")
 fi
 
-edition=$(tr -d '[:space:]' <"$edition_file")
-
+# Validate and default unknown editions to desktop (never silently accept garbage)
 case "$edition" in
   desktop | server)
-    echo "$edition"
     ;;
   *)
-    echo "omarchy-edition: unrecognized edition in $edition_file: ${edition:-<empty>}" >&2
-    exit 1
+    # Unknown edition file content is treated as desktop for predicate checks
+    # but reported as an error when printing
+    if [[ $# -eq 0 ]]; then
+      echo "omarchy-edition: unrecognized edition in $edition_file: ${edition:-<empty>}" >&2
+      exit 1
+    fi
+    edition="desktop"
     ;;
 esac
+
+# If an argument is given, act as a predicate (exit 0 if it matches, 1 otherwise)
+if [[ $# -eq 1 ]]; then
+  [[ $1 == "$edition" ]]
+  exit $?
+elif [[ $# -gt 1 ]]; then
+  echo "omarchy-edition: too many arguments" >&2
+  exit 2
+else
+  echo "$edition"
+fi

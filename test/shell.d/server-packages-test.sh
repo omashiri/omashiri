@@ -64,3 +64,33 @@ for package in docker docker-compose btop lazygit lazydocker lazyjournal ufw tmu
     fail "the server list keeps the CLI and TUI toolbox" "$package is missing"
 done
 pass "the server list keeps the CLI and TUI toolbox"
+
+# Every base package must have a retain/drop decision
+read_dropped() {
+  sed -n 's/^# dropped: //p' "$1"
+}
+
+read_dropped "$server_packages" >"$workdir/dropped"
+while IFS= read -r package; do
+  if ! grep -Fxq "$package" "$workdir/server" && ! grep -Fxq "$package" "$workdir/server-only"; then
+    grep -Fxq "$package" "$workdir/dropped" ||
+      fail "every base package is either retained in the server list or marked as dropped" \
+        "$package is in neither"
+  fi
+done <"$workdir/base"
+pass "every base package has a retain/drop decision"
+
+# No package can be both retained and dropped
+while IFS= read -r package; do
+  ! grep -Fxq "$package" "$workdir/server" ||
+    fail "no package can be both retained and marked as dropped" "$package is both"
+done <"$workdir/dropped"
+pass "no package is both retained and marked as dropped"
+
+# The union of retained and dropped should equal base
+cat "$workdir/server" "$workdir/dropped" | sort | comm -23 - "$workdir/server-only" >"$workdir/union"
+sort "$workdir/base" >"$workdir/base-sorted"
+sort "$workdir/union" >"$workdir/union-sorted"
+diff -u "$workdir/base-sorted" "$workdir/union-sorted" >/dev/null ||
+  fail "retained + dropped should equal base" "$(diff -u "$workdir/base-sorted" "$workdir/union-sorted" || true)"
+pass "retained + dropped equals base"

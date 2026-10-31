@@ -33,9 +33,21 @@ fi
 LEFT_W=44
 RIGHT_W=34
 
-KEYS=(S D V U L B N T G Q)
-LABELS=("STATUS" "DOCKER" "SERVICES" "UPDATE" "LOGS" "BACKUP" "NETWORK" "THEME" "GOODBYE" "QUIT TO SHELL")
-HINTS=("" "" "" "" "" "" "" "" "" "")
+# Build the keys and labels dynamically, omitting entries that can't work yet
+KEYS=() LABELS=() HINTS=()
+KEYS+=(S) LABELS+=("STATUS") HINTS+=("")
+KEYS+=(D) LABELS+=("DOCKER") HINTS+=("")
+KEYS+=(V) LABELS+=("SERVICES") HINTS+=("")
+KEYS+=(U) LABELS+=("UPDATE") HINTS+=("")
+KEYS+=(L) LABELS+=("LOGS") HINTS+=("")
+KEYS+=(B) LABELS+=("BACKUP") HINTS+=("")
+KEYS+=(N) LABELS+=("NETWORK") HINTS+=("")
+# Theme door requires the palette bridge
+if omarchy-cmd-present omarchy-server-palette; then
+  KEYS+=(T) LABELS+=("THEME") HINTS+=("")
+fi
+KEYS+=(G) LABELS+=("GOODBYE") HINTS+=("")
+KEYS+=(Q) LABELS+=("QUIT TO SHELL") HINTS+=("")
 selected=0
 
 guarded() { timeout "${1}s" "${@:2}" 2>/dev/null || true; }
@@ -378,8 +390,11 @@ door_network() {
   printf '\n  %sINTERFACES%s\n\n' "$OMARCHY_BBS_TITLE" "$OMARCHY_BBS_RESET"
   ip -brief address 2>/dev/null | sed 's/^/  /'
   printf '\n  %sFIREWALL%s\n\n' "$OMARCHY_BBS_TITLE" "$OMARCHY_BBS_RESET"
-  sudo ufw status verbose 2>/dev/null | sed 's/^/  /' ||
-    printf '  ufw did not answer\n'
+  if sudo -n ufw status verbose 2>/dev/null | sed 's/^/  /'; then
+    :
+  else
+    printf '  firewall: run omarchy setup security\n'
+  fi
   printf '\n  %sRESOLVERS%s\n\n' "$OMARCHY_BBS_TITLE" "$OMARCHY_BBS_RESET"
   resolvectl status 2>/dev/null | grep -E 'DNS Servers|Current DNS' | sed 's/^/  /' ||
     sed 's/^/  /' /etc/resolv.conf 2>/dev/null
