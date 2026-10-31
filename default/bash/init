@@ -27,3 +27,7 @@ if command -v fzf &> /dev/null; then
 fi
 
 source "$OMARCHY_PATH/default/bash/completions"
+
+if [[ -f "$OMARCHY_PATH/default/bash/server-greet" ]]; then
+  source "$OMARCHY_PATH/default/bash/server-greet"
+fi
