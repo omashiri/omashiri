@@ -29,7 +29,7 @@ chmod +x "$workdir/stub"/*
 # command name instead.
 menu() {
   env PATH="$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" \
-    XDG_CONFIG_HOME="$workdir/config" \
+    XDG_CONFIG_HOME="$workdir/config" TERM=xterm \
     ${@+"$@"} "$ROOT/bin/omarchy-server-menu" --no-input 2>/dev/null || true
 }
 
@@ -154,7 +154,7 @@ STUB
 chmod +x "$long_host"/*
 
 stretched=$(env PATH="$long_host:$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" \
-  XDG_CONFIG_HOME="$workdir/config" COLUMNS=100 \
+  XDG_CONFIG_HOME="$workdir/config" COLUMNS=100 TERM=xterm \
   "$ROOT/bin/omarchy-server-menu" --no-input 2>/dev/null || true)
 
 printf '%s' "$stretched" | python3 -c '

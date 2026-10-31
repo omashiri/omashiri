@@ -28,7 +28,9 @@ read_list "$server_packages" >"$workdir/server"
 #                 the server edition cannot assume that list.
 #   rsync       - the transport a headless box is administered over.
 #   lazyjournal - the menu's log door, packaged in omarchy-pkgs.
-printf 'openssh\nrsync\nlazyjournal\n' >"$workdir/server-only"
+#   dua-cli     - disk usage analyzer, CLI replacement for baobab
+#   lazydocker  - Docker TUI for the [D] door
+printf 'openssh\nrsync\nlazyjournal\ndua-cli\nlazydocker\n' >"$workdir/server-only"
 
 while IFS= read -r package; do
   grep -Fxq "$package" "$workdir/base" && continue
@@ -88,9 +90,10 @@ done <"$workdir/dropped"
 pass "no package is both retained and marked as dropped"
 
 # The union of retained and dropped should equal base
-cat "$workdir/server" "$workdir/dropped" | sort | comm -23 - "$workdir/server-only" >"$workdir/union"
+cat "$workdir/server" "$workdir/dropped" | sort | uniq >"$workdir/union-pre"
+sort "$workdir/server-only" >"$workdir/server-only-sorted"
+comm -23 "$workdir/union-pre" "$workdir/server-only-sorted" >"$workdir/union"
 sort "$workdir/base" >"$workdir/base-sorted"
-sort "$workdir/union" >"$workdir/union-sorted"
-diff -u "$workdir/base-sorted" "$workdir/union-sorted" >/dev/null ||
-  fail "retained + dropped should equal base" "$(diff -u "$workdir/base-sorted" "$workdir/union-sorted" || true)"
+diff -u "$workdir/base-sorted" "$workdir/union" >/dev/null ||
+  fail "retained + dropped should equal base" "$(diff -u "$workdir/base-sorted" "$workdir/union" || true)"
 pass "retained + dropped equals base"

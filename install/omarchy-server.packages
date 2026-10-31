@@ -7,13 +7,15 @@
 # toolbox, containers, networking, security, and the theming plumbing that the
 # terminal side of a theme needs.
 #
-# Only three entries are not in omarchy-base.packages. Keep that true, or teach
+# Only five entries are not in omarchy-base.packages. Keep that true, or teach
 # test/shell.d/server-packages-test.sh about the new one:
 #   openssh     - the desktop gets it from the ISO's archinstall.packages, and
 #                 the server edition cannot assume that list.
 #   rsync       - the transport a headless box is administered over.
 #   lazyjournal - the [L] door. The desktop reads logs in a window; a server
 #                 reads them in the terminal it is already in.
+#   dua-cli     - disk usage analyzer, CLI replacement for baobab
+#   lazydocker  - Docker TUI for the [D] door
 
 bash-completion
 bat

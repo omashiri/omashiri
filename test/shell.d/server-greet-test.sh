@@ -49,8 +49,9 @@ greet_on_pty() {
     HOME="$workdir" \
     XDG_STATE_HOME="$XDG_STATE_HOME" \
     OMARCHY_EDITION_FILE="$edition_file" \
+    TERM=xterm \
     ${@+"$@"} \
-    bash --norc --noprofile -i -c "source '$hook'" 2>/dev/null | tr -d '\r'
+    bash --norc --noprofile --login -i -c "source '$hook'" 2>/dev/null | tr -d '\r'
 }
 
 # ---- the cases that must stay silent -------------------------------------
@@ -147,7 +148,7 @@ chmod +x "$workdir/stub/omarchy-theme-color"
 splash_stderr="$workdir/splash.err"
 # By path, not by name: the guard stubs above are still first on PATH, and they
 # are what those cases needed.
-splash_out=$(PATH="$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" \
+splash_out=$(PATH="$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" TERM=xterm \
   "$ROOT/bin/omarchy-server-splash" --no-input 2>"$splash_stderr") && splash_status=0 || splash_status=$?
 
 (( splash_status == 1 )) ||
@@ -168,7 +169,7 @@ pass "the splash draws the whole status block"
 
 # The wordmark is 81 columns. Wrapping it reads as damage, so a narrow terminal
 # gets the header alone.
-narrow=$(PATH="$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" \
+narrow=$(PATH="$workdir/stub:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" TERM=xterm \
   COLUMNS=60 "$ROOT/bin/omarchy-server-splash" --no-input 2>/dev/null || true)
 [[ $narrow != *"▀█████▀"* ]] || fail "a narrow terminal gets no wordmark to wrap"
 [[ $narrow == *"OMARCHY SERVER"* ]] || fail "a narrow terminal still gets the header"
