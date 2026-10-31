@@ -25,6 +25,10 @@ omarchy_server_greet() {
   # Nothing to draw on, or nowhere to read a keypress from.
   [[ -t 0 && -t 1 ]] || return 0
 
+  # TERM=dumb means a terminal that cannot do anything interactive. mid-rsync
+  # output parsers set this, as does Emacs ansi-term before TERM is propagated.
+  [[ ${TERM:-} != "dumb" ]] || return 0
+
   # SSH without a pty. SSH_CONNECTION is set for every ssh session; SSH_TTY
   # only when one was allocated, so this catches `ssh -T` and friends.
   if [[ -n ${SSH_CONNECTION:-} && -z ${SSH_TTY:-} ]]; then
