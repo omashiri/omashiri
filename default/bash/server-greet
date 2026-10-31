@@ -53,7 +53,7 @@ omarchy_server_greet() {
 
   local edition=""
   read -r edition <"$edition_file" 2>/dev/null || return 0
-  # Trim whitespace and only accept "server" - unknown editions are treated as desktop.
+  # Trim whitespace and only accept "server" - anything else (desktop or unknown) won't greet.
   edition=${edition//[[:space:]]/}
   [[ $edition == "server" ]] || return 0
 

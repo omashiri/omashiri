@@ -14,18 +14,20 @@ else
   edition=$(tr -d '[:space:]' <"$edition_file")
 fi
 
-# Validate and default unknown editions to desktop (never silently accept garbage)
+# Validate the edition value
 case "$edition" in
   desktop | server)
+    # Valid edition
     ;;
   *)
-    # Unknown edition file content is treated as desktop for predicate checks
-    # but reported as an error when printing
+    # Unknown edition: error when printing, both predicates false
     if [[ $# -eq 0 ]]; then
       echo "omarchy-edition: unrecognized edition in $edition_file: ${edition:-<empty>}" >&2
       exit 1
+    else
+      # For predicates, unknown editions match nothing (both predicates false)
+      exit 1
     fi
-    edition="desktop"
     ;;
 esac
 
