@@ -1,0 +1,91 @@
+name: Server edition ISO (test build)
+
+# Builds an Omarchy ISO from omacom/omarchy-iso (with server-edition patch) plus
+# this fork's server edition source, and hands it over as an artifact. No secrets,
+# no signing, no publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      omarchy_iso_ref:
+        description: "omarchy-iso commit SHA"
+        default: 0baef779ca6ded18235827382c1c765686ec9fe8
+  push:
+    branches:
+      - cursor/server-iso-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the server-edition ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      # Check out THIS repo (the server edition source)
+      - uses: actions/checkout@v4
+        with:
+          path: omarchy
+          persist-credentials: false
+
+      # Check out omarchy-iso at the specific commit with submodules
+      - uses: actions/checkout@v4
+        with:
+          repository: omacom/omarchy-iso
+          ref: ${{ inputs.omarchy_iso_ref || '0baef779ca6ded18235827382c1c765686ec9fe8' }}
+          path: omarchy-iso
+          submodules: recursive
+          persist-credentials: false
+
+      # Apply the server-edition patch to omarchy-iso
+      - name: Apply server edition patch
+        working-directory: omarchy-iso
+        run: |
+          git apply --check ../omarchy/.github/server-iso/omarchy-iso-server-test.patch
+          git apply ../omarchy/.github/server-iso/omarchy-iso-server-test.patch
+          git log -1 --format='omarchy-iso patched from: %H %s'
+
+      # Package recipes for the local build. lazyjournal is in omacom/omarchy-pkgs#397,
+      # not merged yet, so it is dropped in from that PR's head.
+      - uses: actions/checkout@v4
+        with:
+          repository: omacom/omarchy-pkgs
+          path: omarchy-pkgs
+          persist-credentials: false
+
+      - name: Add the lazyjournal recipe (omarchy-pkgs#397)
+        run: |
+          git clone --depth 1 --branch lazyjournal https://github.com/bartex/omarchy-pkgs.git /tmp/bartex-pkgs
+          cp -a /tmp/bartex-pkgs/pkgbuilds/lazyjournal omarchy-pkgs/pkgbuilds/lazyjournal
+          test -f omarchy-pkgs/pkgbuilds/lazyjournal/PKGBUILD
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+          avail_gb=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+          [ "$avail_gb" -ge 40 ] || { echo "::error::only ${avail_gb} GB free, the ISO build needs ~40 GB"; exit 1; }
+
+      - name: Confirm the source carries the server edition
+        run: |
+          test -f omarchy/install/omarchy-server.packages
+          test -x omarchy/bin/omarchy-edition
+          git -C omarchy log -1 --format='omarchy source: %H %s' 2>/dev/null || true
+
+      - name: Build the ISO
+        working-directory: omarchy-iso
+        run: |
+          NO_BOOT_OFFER=1 ./bin/omarchy-iso-make --keep-pkg-cache --label server \
+            --local-source ../omarchy ../omarchy-pkgs
+          ls -l release/*.iso
+          (cd release && sha256sum *.iso | tee SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchy-server-iso
+          path: |
+            omarchy-iso/release/*.iso
+            omarchy-iso/release/SHA256SUMS
+          retention-days: 7
+          compression-level: 0

@@ -1,0 +1,568 @@
+diff --git a/README.md b/README.md
+index bea37e1..4d09cce 100644
+--- a/README.md
++++ b/README.md
+@@ -165,7 +165,7 @@ These are the configurator's own output files, so the way to get a starting set
+ 
+ | File | Required | Purpose |
+ |------|----------|---------|
+-| `user_configuration.json` | Yes | archinstall config: disk, hostname, timezone, keyboard |
++| `user_configuration.json` | Yes | archinstall config: disk, hostname, timezone, keyboard, and `omarchy_install.edition` |
+ | `user_credentials.json` | Yes | Username and password hash |
+ | `user_encrypt_installation.txt` | No | `true` when `user_configuration.json` carries a `disk_encryption` block; defaults to false |
+ | `authorized_keys` | No | SSH public keys in sshd's own format, one per line |
+diff --git a/bin/omarchy-iso-make b/bin/omarchy-iso-make
+index a926d6b..1cbb2c3 100755
+--- a/bin/omarchy-iso-make
++++ b/bin/omarchy-iso-make
+@@ -4,6 +4,7 @@ set -e
+ 
+ NO_CACHE=""
+ KEEP_PKG_CACHE=""
++ISO_LABEL=""
+ LOCAL_OMARCHY_PATH=""
+ LOCAL_PKGS_PATH=""
+ OMARCHY_ARCH="${OMARCHY_ARCH:-x86_64}"
+@@ -55,6 +56,18 @@ while [[ $# -gt 0 ]]; do
+     NO_BOOT_OFFER=1
+     shift
+     ;;
++  --label)
++    ISO_LABEL="${2:-}"
++    if [[ -z $ISO_LABEL ]]; then
++      echo "Error: --label requires a name" >&2
++      exit 1
++    fi
++    if [[ ! $ISO_LABEL =~ ^[A-Za-z0-9._-]+$ ]]; then
++      echo "Error: --label may only contain letters, digits, dots, dashes and underscores" >&2
++      exit 1
++    fi
++    shift 2
++    ;;
+   --debug)
+     OMARCHY_INSTALL_DEBUG=1
+     shift
+@@ -92,7 +105,7 @@ while [[ $# -gt 0 ]]; do
+     ;;
+   *)
+     echo "Unknown option: $1"
+-    echo "Usage: $0 [--no-cache] [--keep-pkg-cache] [--no-boot-offer] [--debug] [--edge] [--dev|--rc] [--local-source <omarchy-checkout> <pkgs-checkout>]"
++    echo "Usage: $0 [--no-cache] [--keep-pkg-cache] [--no-boot-offer] [--debug] [--edge] [--dev|--rc] [--label <name>] [--local-source <omarchy-checkout> <pkgs-checkout>]"
+     echo "       $0 --arch aarch64 [--edge|--rc] [--package-dir DIR] [--dev-ssh <pubkey>] [--local-source <omarchy-checkout> <pkgs-checkout>] [...]"
+     exit 1
+     ;;
+@@ -272,7 +285,7 @@ latest_iso=$(\ls -t "$BUILD_RELEASE_PATH"/*.iso | head -n1)
+ if [[ $OMARCHY_ARCH == aarch64 ]]; then
+   iso_ref="${latest_iso%.*}${N1X_DEV_SSH_KEY:+-devssh}-$OMARCHY_ISO_REF.iso"
+ else
+-  iso_ref="${latest_iso%.*}-$OMARCHY_ISO_REF.iso"
++  iso_ref="${latest_iso%.*}-$OMARCHY_ISO_REF${ISO_LABEL:+-$ISO_LABEL}.iso"
+ fi
+ mv -f "$latest_iso" "$iso_ref"
+ 
+diff --git a/builder/build-iso.sh b/builder/build-iso.sh
+index 5c6cadc..65cd2d3 100755
+--- a/builder/build-iso.sh
++++ b/builder/build-iso.sh
+@@ -125,7 +125,7 @@ if [[ $OMARCHY_ARCH == aarch64 ]]; then
+   # and run the repository's pinned submodule copy, patched for arm64-efi GRUB.
+   pacman --noconfirm -Syu \
+     arch-install-scripts dosfstools e2fsprogs erofs-utils libarchive libisoburn \
+-    mtools squashfs-tools git sudo base-devel jq grub imagemagick neovim nodejs npm tree-sitter-cli btrfs-progs
++    mtools squashfs-tools git sudo base-devel go jq grub imagemagick neovim nodejs npm tree-sitter-cli btrfs-progs
+   mkarchiso_command=/tmp/mkarchiso-aarch64
+   cp /archiso/archiso/mkarchiso "$mkarchiso_command"
+   patch --batch --forward --fuzz=0 "$mkarchiso_command" </builder/archiso-v87-aarch64-grub.patch
+@@ -144,7 +144,7 @@ else
+   # so this container can be months behind the mirror it installs from. A plain
+   # -Sy install is then a partial upgrade — new packages linked against a glibc
+   # the container doesn't have yet.
+-  pacman --noconfirm -Syu archiso git sudo base-devel jq grub imagemagick neovim nodejs npm tree-sitter-cli btrfs-progs
++  pacman --noconfirm -Syu archiso git sudo base-devel go jq grub imagemagick neovim nodejs npm tree-sitter-cli btrfs-progs
+   mkarchiso_command=mkarchiso
+ fi
+ 
+@@ -321,15 +321,20 @@ fi
+ # When --local-source is in effect, build omarchy* from the mounted source
+ # trees and drop them in the offline mirror. Otherwise pacman -Syw below
+ # downloads the published versions from the omarchy network mirror.
++: "${OMARCHY_LOCAL_EXTRA_PACKAGES:=lazyjournal}"
++export OMARCHY_LOCAL_EXTRA_PACKAGES
++
+ if [[ -d /omarchy-source && -d /omarchy-pkgs ]]; then
+   bash /builder/build-omarchy-packages.sh "$offline_mirror_dir"
+   LOCAL_OMARCHY_BUILD=1
++  read -r -a local_built_packages <<<"$OMARCHY_LOCAL_EXTRA_PACKAGES"
++  local_built_packages=(
++    "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"
++    "${local_built_packages[@]}"
++  )
+   # A rebuild of the same revision produces the same filename with different
+-  # bytes. pacman consults /var/cache/pacman/pkg (the host's cache, kept across
+-  # --keep-pkg-cache builds) before the mirror, and a stale copy from an
+-  # earlier build fails the checksum against the mirror's fresh db.
+-  for local_package_name in \
+-    "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"; do
++  # bytes; drop stale host-cache copies.
++  for local_package_name in "${local_built_packages[@]}"; do
+     rm -f /var/cache/pacman/pkg/"$local_package_name"-*.pkg.tar.zst{,.sig}
+   done
+ 
+@@ -384,6 +389,7 @@ sed -i -E '/^(linux|broadcom-wl)$/d' "$live_packages_file"
+ # pulls the published omarchy* from the network mirror like any other package.
+ if [[ -d /omarchy-source ]]; then
+   base_pkg_lists=(/omarchy-source/install/omarchy-base.packages /omarchy-source/install/omarchy-other.packages)
++  server_pkg_list=/omarchy-source/install/omarchy-server.packages
+   setup_form=/omarchy-source/install/provisioning/setup-form.sh
+   progress_icon=/omarchy-source/install/provisioning/progress-icon.sh
+   mise_work=/omarchy-source/install/user/mise-work.sh
+@@ -402,6 +408,11 @@ else
+   mkdir -p /tmp/omarchy-pkglists
+   bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-base.packages usr/share/omarchy/install/omarchy-other.packages
+   base_pkg_lists=(/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-base.packages /tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-other.packages)
++  # Extracted on its own and tolerating a miss, like the setup form below: a
++  # runtime predating the server edition ships no such list, and that is a
++  # desktop-only ISO rather than a build failure.
++  bsdtar -xf "$omarchy_pkg" -C /tmp/omarchy-pkglists usr/share/omarchy/install/omarchy-server.packages 2>/dev/null || true
++  server_pkg_list=/tmp/omarchy-pkglists/usr/share/omarchy/install/omarchy-server.packages
+   # Extracted on its own, tolerating a miss: bsdtar exits non-zero for a member
+   # it can't find, so asking for this alongside the package lists would abort the
+   # build here (set -e) with a bare "Not found in archive" instead of the
+@@ -516,6 +527,14 @@ else
+   archinstall_packages_file=/builder/archinstall.packages
+ fi
+ 
++# The installer reads this when the caller chose the server edition. Without it
++# on the medium, a server install has no list to pacstrap.
++if [[ -f $server_pkg_list ]]; then
++  cp "$server_pkg_list" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-server.packages"
++else
++  echo "WARNING: no omarchy-server.packages in this runtime; the ISO will offer no server edition." >&2
++fi
++
+ # The configurator's setup form comes from the runtime this ISO bundles, so the
+ # installer and the first-boot setup that finishes a deferred install can never
+ # disagree. A runtime predating the split ships no such file, which would leave
+@@ -584,6 +603,9 @@ mapfile -t all_packages < <(
+   {
+     cat "$live_packages_file"
+     grep -hv '^#\|^$' "${base_pkg_lists[@]}" "${platform_lists[@]}"
++    if [[ -f ${server_pkg_list:-/nonexistent} ]]; then
++      grep -hv '^#\|^$' "$server_pkg_list"
++    fi
+     grep -hv '^#\|^$' /builder/archinstall.packages
+     # The root image is pacstrapped from the pruned mirror, so its packages
+     # must be in the keep-set even when nothing in the lists depends on them.
+@@ -688,12 +710,12 @@ fi
+ # the mirror; strip them from the pacman -Syw list so it doesn't try to fetch
+ # the published versions on top.
+ if [[ -n ${LOCAL_OMARCHY_BUILD:-} ]]; then
++  exclude_args=()
++  for local_package_name in "${local_built_packages[@]}"; do
++    exclude_args+=(-e "$local_package_name")
++  done
+   mapfile -t all_packages < <(
+-    printf '%s\n' "${all_packages[@]}" |
+-      grep -Fxv \
+-        -e "$OMARCHY_RUNTIME_PACKAGE" \
+-        -e "$OMARCHY_SETTINGS_PACKAGE" \
+-        -e "$OMARCHY_NVIM_PACKAGE" || true
++    printf '%s\n' "${all_packages[@]}" | grep -Fxv "${exclude_args[@]}" || true
+   )
+   # They are in the image, so never shipped; and the online db the closure is
+   # resolved against does not know the local builds.
+@@ -815,8 +837,7 @@ mapfile -t required_package_files <<< "$resolved_package_files"
+ # are only in the image now, but keeping all three in the mirror leaves
+ # omarchy-apply-system able to resolve them like any published build.
+ if [[ -n ${LOCAL_OMARCHY_BUILD:-} ]]; then
+-  for local_package_name in \
+-    "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"; do
++  for local_package_name in "${local_built_packages[@]}"; do
+     local_package_file=""
+     for candidate in "$offline_mirror_dir/$local_package_name-"*.pkg.tar.*; do
+       [[ -f $candidate && $candidate != *.sig ]] || continue
+@@ -881,6 +902,12 @@ image_package_list() {
+     ((${#image_arch_packages[@]} == 0)) || printf '%s\n' "${image_arch_packages[@]}"
+     # The shipped copy, which is what the install reads too.
+     grep -hv '^#\|^$' "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
++    # Server-edition test build: the image carries the server list too (union with
++    # the desktop set), so an install stamped "server" has openssh, dropbear,
++    # netconf, rsync, lazyjournal... without a second root image.
++    if [[ -f ${server_pkg_list:-/nonexistent} ]]; then
++      grep -hv '^#\|^$' "$server_pkg_list"
++    fi
+     printf '%s\n' "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"
+   } | sort -u
+ }
+diff --git a/builder/build-omarchy-packages.sh b/builder/build-omarchy-packages.sh
+index 38dadd7..4993e7f 100755
+--- a/builder/build-omarchy-packages.sh
++++ b/builder/build-omarchy-packages.sh
+@@ -42,12 +42,21 @@ pacman -Sy --noconfirm
+ : "${OMARCHY_SETTINGS_PACKAGE:=omarchy-settings-dev}"
+ : "${OMARCHY_NVIM_PACKAGE:=omarchy-nvim}"
+ 
++# The server edition's log door. Built here rather than downloaded because it
++# exists nowhere pacman can reach: the AUR is not a mirror, and the install is
++# offline. Anything else the server list needs and the published mirror lacks
++# belongs on this list too.
++: "${OMARCHY_LOCAL_EXTRA_PACKAGES:=lazyjournal}"
++
+ packages=(
+   "$OMARCHY_SETTINGS_PACKAGE"
+   "$OMARCHY_RUNTIME_PACKAGE"
+   "$OMARCHY_NVIM_PACKAGE"
+ )
+ 
++read -r -a extra_packages <<<"$OMARCHY_LOCAL_EXTRA_PACKAGES"
++packages+=("${extra_packages[@]}")
++
+ # Local-source packages must replace every cached build of the same package,
+ # even when the checkout's generated pkgver sorts below a published build.
+ # Otherwise the later generic cache pruning can silently keep edge instead.
+diff --git a/configs/airootfs/root/.automated_script.sh b/configs/airootfs/root/.automated_script.sh
+index 55502a0..0656bac 100644
+--- a/configs/airootfs/root/.automated_script.sh
++++ b/configs/airootfs/root/.automated_script.sh
+@@ -155,6 +155,7 @@ fi
+ # autoinstall configuration.
+ OMARCHY_ISO_LANGUAGE="$(jq -r '.omarchy_install.language // "en"' /root/user_configuration.json 2>/dev/null || echo en)"
+ export OMARCHY_ISO_LANGUAGE
++export OMARCHY_UI_EDITION="$(jq -r '.omarchy_install.edition // "desktop"' /root/user_configuration.json 2>/dev/null)"
+ 
+ # The foreground dashboard is now the sole visible install UI owner. It starts
+ # the actual installer as a non-interactive child, logs child output, waits for
+diff --git a/configs/airootfs/root/configurator b/configs/airootfs/root/configurator
+index 181f5c5..37dc659 100644
+--- a/configs/airootfs/root/configurator
++++ b/configs/airootfs/root/configurator
+@@ -364,18 +364,21 @@ user_step() {
+   while true; do
+     user_form && status=0 || status=$?
+     if ((status != 0)); then
+-      # Esc unwinds to the start of the form. Ctrl+C has no side channel in the
+-      # user step (only the keyboard and disk screens give it a meaning), so it
+-      # keeps its long-standing behaviour of ending the install.
++      # Esc unwinds to the start of the flow: keyboard, then edition, then the
++      # form again. Ctrl+C has no side channel in the user step (only the
++      # keyboard and disk screens give it a meaning), so it keeps its
++      # long-standing behaviour of ending the install.
+       ((status == OMARCHY_FORM_BACK)) || abort
+       keyboard_form
+       $defer_provisioning && return 0
++      edition_step
+       continue
+     fi
+ 
+     # Add manual padding since gum table -p doesn't respect padding
+     echo -e "$(t summary.field),$(t summary.value)
+ $(t summary.language),$(language_label "$language")
++Edition,${edition_label:-Desktop}
+ $(t summary.keyboard),$keyboard
+ $(t summary.timezone),$timezone
+ $(t summary.username),$username
+@@ -389,6 +392,7 @@ $(t summary.hostname),$hostname" |
+     else
+       keyboard_form
+       $defer_provisioning && return 0
++      edition_step
+     fi
+   done
+ }
+@@ -959,6 +963,7 @@ run_partition_execute() {
+         "input_xkb_layout": "${keyboard_xkb_layout:-}",
+         "language": "$language",
+         "mode": "protected",
++        "edition": "$edition",
+         "target_mount": "/mnt",
+         "boot": {
+             "esp_mount": "$esp_mount_in_target",
+@@ -1108,6 +1113,29 @@ install_mode_form() {
+   install_mode=$(gum choose --label-delimiter $'\t' --header "$(t mode.header "$disk")" "${choices[@]}")
+ }
+ 
++# Which Omarchy this machine becomes. Settled at install, never toggled on an
++# installed machine: taking a compositor off, or putting one on, is a
++# migration in both directions, so the answer is a reinstall.
++edition_step() {
++  local choice
++
++  step "Let's pick which Omarchy this machine runs..."
++  choice=$(gum choose --header "Select edition" \
++    "Desktop (Hyprland, apps, the full session)" \
++    "Server (headless, SSH, no desktop)") || abort
++
++  case "$choice" in
++    Server*)
++      edition="server"
++      edition_label="Server"
++      ;;
++    *)
++      edition="desktop"
++      edition_label="Desktop"
++      ;;
++  esac
++}
++
+ confirm_disk_overwrite() {
+   local mode="encrypted"
+   local affirmative confirm_status
+@@ -1208,6 +1236,10 @@ install_target="full_disk"
+ wait_for_stable_terminal
+ i18n_console_font "$(tty 2>/dev/null)"
+ 
++# Deferred provisioning never asks, and an autoinstall drive answers in its own
++# configuration file, so the flow needs a default that means "as before".
++edition="desktop"
++
+ greeter
+ 
+ language_form
+@@ -1215,9 +1247,12 @@ language_form
+ $defer_provisioning || keyboard_form
+ 
+ # Normal install: keyboard (loaded above, so the LUKS passphrase is typed under
+-# the right layout) → user → disk → install mode. The user step can unwind to
++# the right layout) → edition → user → disk → install mode. The user step can unwind to
+ # the language screen and arm deferral there, hence the second check.
+ if ! $defer_provisioning; then
++  # Before the account, so the confirmation table at the end of the user step
++  # can show what was chosen.
++  edition_step
+   user_step
+ fi
+ 
+@@ -1333,6 +1368,7 @@ cat <<-_EOF_ >user_configuration.json
+         "input_xkb_layout": "${keyboard_xkb_layout:-}",
+         "language": "$language",
+         "mode": "full_disk",
++        "edition": "$edition",
+         "defer_provisioning": $defer_provisioning,
+         "target_mount": "/mnt",
+         "boot": {
+diff --git a/configs/airootfs/usr/share/omarchy-iso/orchestrator/context.py b/configs/airootfs/usr/share/omarchy-iso/orchestrator/context.py
+index 7052758..36e47cd 100644
+--- a/configs/airootfs/usr/share/omarchy-iso/orchestrator/context.py
++++ b/configs/airootfs/usr/share/omarchy-iso/orchestrator/context.py
+@@ -41,6 +41,7 @@ class InstallContext:
+     arch_config_path: Path
+     omarchy_install: dict[str, Any]
+     defer_provisioning: bool = False
++    edition: str = "desktop"
+ 
+     target: Path = Path("/mnt")
+     omarchy_path: Path = Path("/usr/share/omarchy")
+@@ -82,6 +83,17 @@ class InstallContext:
+         defer_provisioning = bool(omarchy_install.get("defer_provisioning")) or defer_provisioning_marker is not None
+         omarchy_install["defer_provisioning"] = defer_provisioning
+ 
++        # Edition: which Omarchy this machine becomes. Chosen in the
++        # configurator, or set in user_configuration.json by an autoinstall
++        # drive. Anything unrecognised is refused rather than assumed, because
++        # the wrong answer installs the wrong operating system.
++        edition = str(omarchy_install.get("edition") or "desktop").strip().lower()
++        if edition not in ("desktop", "server"):
++            raise RuntimeError(
++                f"omarchy_install.edition must be 'desktop' or 'server', not {edition!r}"
++            )
++        omarchy_install["edition"] = edition
++
+         if creds_path.exists():
+             user_credentials = json.loads(creds_path.read_text())
+         elif defer_provisioning:
+@@ -131,6 +143,7 @@ class InstallContext:
+             encrypt=_read_text(os.environ.get("OMARCHY_INSTALL_ENCRYPT_FILE")).lower() in ("true", "yes", "1"),
+             authorized_keys_path=_optional_path(os.environ.get("OMARCHY_INSTALL_AUTHORIZED_KEYS_FILE")),
+             tailscale_authkey_path=_optional_path(os.environ.get("OMARCHY_INSTALL_TAILSCALE_AUTHKEY_FILE")),
++            edition=edition,
+             user_configuration=user_configuration,
+             user_credentials=user_credentials,
+             arch_config_path=arch_config_path,
+@@ -248,6 +261,7 @@ def _default_omarchy_install(user_configuration: dict) -> dict[str, Any]:
+     mode = "protected" if disk_config.get("config_type") == "pre_mounted_config" else "full_disk"
+     return {
+         "mode": mode,
++        "edition": "desktop",
+         "target_mount": disk_config.get("mountpoint") or "/mnt",
+         "boot": {
+             "esp_mount": "/boot",
+diff --git a/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py b/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py
+index 212cf96..ab014fc 100644
+--- a/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py
++++ b/configs/airootfs/usr/share/omarchy-iso/orchestrator/phases_impl.py
+@@ -2346,6 +2346,7 @@ def _run_target_setup_command(ctx: InstallContext, cmd: list[str], *, user: str
+     env_extras = [
+         "OMARCHY_PATH=/usr/share/omarchy",
+         "OMARCHY_INSTALL=/usr/share/omarchy/install",
++        f"OMARCHY_EDITION={ctx.edition}",
+         f"OMARCHY_INSTALL_USER={ctx.username}",
+         f"OMARCHY_START_TIME={omarchy_start_time}",
+         f"OMARCHY_START_EPOCH={omarchy_start_epoch}",
+@@ -2403,7 +2404,24 @@ def _run_target_setup_command(ctx: InstallContext, cmd: list[str], *, user: str
+                 pass
+ 
+ 
++def _write_edition_marker(ctx: InstallContext) -> None:
++    """Stamp the target with the edition it was installed as.
++
++    Written before omarchy-apply-system runs, because that is the first thing to
++    read it: the install steps that configure a login manager, a lock screen and
++    a printing stack all gate on this file, and the packages behind them are not
++    there on a server.
++    """
++    marker = ctx.target / "etc" / "omarchy-edition"
++    marker.parent.mkdir(parents=True, exist_ok=True)
++    marker.write_text(f"{ctx.edition}\n")
++    marker.chmod(0o644)
++    info(f"› edition: {ctx.edition}")
++
++
+ def run_system_finalizer(ctx: InstallContext) -> None:
++    _write_edition_marker(ctx)
++
+     if ctx.defer_provisioning:
+         cmd = ["/usr/bin/omarchy-apply-system", "--defer-provisioning", "--first-install"]
+     else:
+@@ -2992,6 +3010,23 @@ def _read_omarchy_mirror() -> str:
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
+ def configure_login(ctx: InstallContext) -> None:
++    # A server boots to a getty, so its equivalent of the desktop's encrypted
++    # autologin is an agetty --autologin drop-in on tty1.
++    if ctx.edition == "server":
++        autologin = ctx.target / "etc" / "systemd" / "system" / "getty@tty1.service.d" / "autologin.conf"
++        if ctx.encrypt and not ctx.defer_provisioning:
++            info(f"› autologin {ctx.username} on tty1 behind the LUKS prompt")
++            autologin.parent.mkdir(parents=True, exist_ok=True)
++            autologin.write_text(
++                "[Service]\n"
++                "ExecStart=\n"
++                f"ExecStart=-/sbin/agetty -o '-p -f -- \\\\u' --noclear --autologin {ctx.username} %I $TERM\n"
++            )
++        else:
++            info("› server edition: getty login stays the auth screen")
++            autologin.unlink(missing_ok=True)
++        return
++
+     sddm_dir = ctx.target / "etc" / "sddm.conf.d"
+     sddm_dir.mkdir(parents=True, exist_ok=True)
+     (sddm_dir / "99-omarchy-login.conf").write_text(
+@@ -3040,12 +3075,14 @@ def configure_login(ctx: InstallContext) -> None:
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
+ def configure_ssh_access(ctx: InstallContext) -> None:
+-    if ctx.authorized_keys_path is None:
++    # A server without SSH is unreachable, so the door opens even when no keys
++    # were given; password auth over the console-set password remains.
++    if ctx.authorized_keys_path is None and ctx.edition != "server":
+         return
+ 
+-    keys = _authorized_keys(ctx.authorized_keys_path)
++    keys = [] if ctx.authorized_keys_path is None else _authorized_keys(ctx.authorized_keys_path)
+ 
+-    if ctx.defer_provisioning:
++    if keys and ctx.defer_provisioning:
+         # No user to authorize yet. Stage the keys in provisioning state for
+         # omarchy-provision-owner to install once first boot creates the owner, and
+         # still open the door (sshd + ufw) below.
+@@ -3055,7 +3092,7 @@ def configure_ssh_access(ctx: InstallContext) -> None:
+         staged = provisioning_dir / "authorized_keys"
+         staged.write_text("".join(f"{key}\n" for key in keys))
+         staged.chmod(0o600)
+-    else:
++    elif keys:
+         info(f"› installing {len(keys)} SSH key(s) for {ctx.username}")
+ 
+         ssh_dir = ctx.target / "home" / ctx.username / ".ssh"
+diff --git a/test/unit/test_configure_ssh_access.py b/test/unit/test_configure_ssh_access.py
+index 21e1f76..ff7ff3c 100644
+--- a/test/unit/test_configure_ssh_access.py
++++ b/test/unit/test_configure_ssh_access.py
+@@ -55,12 +55,12 @@ class ConfigureSshAccessTest(unittest.TestCase):
+             return CompletedProcess(cmd, 1)
+         return CompletedProcess(cmd, 0)
+ 
+-    def ctx(self, authorized_keys=None):
++    def ctx(self, authorized_keys=None, edition="desktop"):
+         authorized_keys_path = None
+         if authorized_keys is not None:
+             authorized_keys_path = self.target / "authorized_keys"
+             authorized_keys_path.write_text(authorized_keys)
+-        return types.SimpleNamespace(target=self.target, username="jeff", authorized_keys_path=authorized_keys_path, defer_provisioning=False)
++        return types.SimpleNamespace(target=self.target, username="jeff", authorized_keys_path=authorized_keys_path, defer_provisioning=False, edition=edition)
+ 
+     def configure(self, **kwargs):
+         phases_impl.configure_ssh_access(self.ctx(**kwargs))
+@@ -76,6 +76,13 @@ class ConfigureSshAccessTest(unittest.TestCase):
+         self.assertEqual(self.calls, [])
+         self.assertFalse((self.target / "home" / "jeff" / ".ssh").exists())
+ 
++    def test_server_edition_opens_ssh_even_with_no_keys(self):
++        self.configure(edition="server")
++        self.assertEqual(self.chrooted("systemctl"),
++                         [["arch-chroot", str(self.target), "systemctl", "enable", "sshd.service"]])
++        self.assertEqual(len(self.chrooted("ufw")), 1)
++        self.assertFalse((self.target / "home" / "jeff" / ".ssh").exists())
++
+     def test_installs_keys_one_per_line(self):
+         self.configure(authorized_keys="ssh-ed25519 AAAA jeff@host\nssh-rsa BBBB jeff@work\n")
+         self.assertEqual(self.authorized_keys().read_text(), "ssh-ed25519 AAAA jeff@host\nssh-rsa BBBB jeff@work\n")
+diff --git a/test/unit/test_package_signing.py b/test/unit/test_package_signing.py
+index c86e300..750a272 100644
+--- a/test/unit/test_package_signing.py
++++ b/test/unit/test_package_signing.py
+@@ -68,6 +68,7 @@ class KeyringBeforeSystemFinalizerTest(unittest.TestCase):
+         with mock.patch.object(phases_impl.platform, "machine", return_value=machine), \
+                 mock.patch.object(phases_impl, "_mask_mkinitcpio_pacman_hooks"), \
+                 mock.patch.object(phases_impl, "_unmask_mkinitcpio_pacman_hooks"), \
++                mock.patch.object(phases_impl, "_write_edition_marker"), \
+                 mock.patch.object(phases_impl, "_run_target_setup_command",
+                                   lambda ctx, cmd: seen.append("target_keyring_proc" in ctx.state)):
+             phases_impl.run_system_finalizer(ctx)
+diff --git a/test/unit/test_provisioning_state.py b/test/unit/test_provisioning_state.py
+index 313d1ed..cd01a7c 100644
+--- a/test/unit/test_provisioning_state.py
++++ b/test/unit/test_provisioning_state.py
+@@ -169,6 +169,7 @@ def make_ctx(target, **overrides):
+         state_dir=target / "state",
+         authorized_keys_path=None,
+         state={},
++        edition="desktop",
+     )
+     defaults.update(overrides)
+     return types.SimpleNamespace(**defaults)
+@@ -299,6 +300,10 @@ class ConfigureLoginDeferProvisioningTest(unittest.TestCase):
+         run_patch.start()
+         self.addCleanup(run_patch.stop)
+ 
++        info_patch = mock.patch.object(phases_impl, "info")
++        info_patch.start()
++        self.addCleanup(info_patch.stop)
++
+     def test_deferred_provisioning_login_leaves_user_state_to_first_boot(self):
+         ctx = make_ctx(self.target, encrypt=True)
+         phases_impl.configure_login(ctx)
+@@ -317,6 +322,23 @@ class ConfigureLoginDeferProvisioningTest(unittest.TestCase):
+         state = (self.target / "var/lib/sddm/state.conf").read_text()
+         self.assertIn("User=jeff", state)
+ 
++    def test_encrypted_server_login_autologs_in_on_tty1(self):
++        ctx = make_ctx(self.target, defer_provisioning=False, encrypt=True, username="jeff", edition="server")
++        phases_impl.configure_login(ctx)
++
++        drop_in = (self.target / "etc/systemd/system/getty@tty1.service.d/autologin.conf").read_text()
++        self.assertIn("ExecStart=\n", drop_in)
++        self.assertIn("--autologin jeff", drop_in)
++        self.assertFalse((self.target / "etc/sddm.conf.d").exists())
++        self.assertFalse(any("sddm.service" in cmd for cmd in self.calls))
++
++    def test_unencrypted_server_login_keeps_the_getty_prompt(self):
++        ctx = make_ctx(self.target, defer_provisioning=False, encrypt=False, username="jeff", edition="server")
++        phases_impl.configure_login(ctx)
++
++        self.assertFalse((self.target / "etc/systemd/system/getty@tty1.service.d/autologin.conf").exists())
++        self.assertFalse((self.target / "etc/sddm.conf.d").exists())
++
+ 
+ class ConfigureSshAccessDeferProvisioningTest(unittest.TestCase):
+     def setUp(self):
