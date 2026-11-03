@@ -26,6 +26,7 @@ docker-buildx
 docker-compose
 dosfstools
 dotnet-runtime
+dua-cli
 evince
 exfatprogs
 expac
@@ -72,6 +73,7 @@ networkmanager
 jq
 kernel-modules-hook
 lazygit
+lazydocker
 less
 libsecret
 libvips
