@@ -5,12 +5,9 @@ matching guide before starting:
 
 - [`agents/skills/command-metadata.md`](agents/skills/command-metadata.md) - adding or changing commands in `bin/`
 - [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working under `install/` or on system/user setup commands
-- [`agents/skills/mise-tools.md`](agents/skills/mise-tools.md) - adding or changing mise-managed tools
 - [`agents/skills/shell-dev.md`](agents/skills/shell-dev.md) - editing the Quickshell desktop under `shell/`
 - [`agents/skills/icon-font.md`](agents/skills/icon-font.md) - adding branded glyphs to `default/fonts/omarchy/omarchy.ttf`
 - [`agents/skills/acceptance-tests.md`](agents/skills/acceptance-tests.md) - writing or running graphical acceptance tests under `test/acceptance.d/`
-- [`agents/skills/oligarchy-tests.md`](agents/skills/oligarchy-tests.md) - full omarchy tests that run in qemu to validate behavior
-- [`agents/skills/motion.md`](agents/skills/motion.md) - adding or changing any animation or transition in `shell/`
 - [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md) - verifying any change with a visual effect in the running UI
 - [`agents/skills/migrations.md`](agents/skills/migrations.md) - creating or changing migrations under `migrations/`
 
@@ -31,7 +28,7 @@ Three documentation trees, split by genre and audience:
 - Prefer `(( ))` over numeric operators inside `[[ ]]` (e.g., `(( count < 50 ))`, not `[[ $count -lt 50 ]]`)
 - Prefer a full `if`/`else` conditional for simple two-path control flow; don't rely on `exec` or `exit` in one branch to make following statements unreachable
 - For strings/paths with spaces, quote them instead of escaping spaces with `\ ` (e.g., `"$APP_DIR/Disk Usage.desktop"`, not `$APP_DIR/Disk\ Usage.desktop`)
-- Shebangs must use `#!/bin/bash` consistently (never `#!/usr/bin/env bash`). A security-sensitive entrypoint may use the exact `#!/bin/bash -p` form only when it must suppress `BASH_ENV` and exported-function startup injection before its first command; that exception must be explained at the boundary and covered by a regression that rejects an ordinary Bash launch with a decoy `-p` argument.
+- Shebangs must use `#!/bin/bash` consistently (never `#!/usr/bin/env bash`)
 - Scripts under `install/` and `migrations/` may be sourced and intentionally omit shebangs
 
 # Command Naming
@@ -93,6 +90,14 @@ Where platform code lives:
 
 The experience should be the same on every platform. When a package or feature is missing or broken on one, the default is to get it fixed upstream (an aarch64 build, a bug report, a patch to the maintainer) and leave the gap visible meanwhile, not to paper over it. When asked for a platform workaround, say so and propose the upstream fix first. Hiding a menu entry or skipping a package is fine only for things that can't exist there (an x86 guest VM, an x86-only proprietary binary). Alternative packages and platform-only replacements are a last resort, used only when upstream can't or won't fix it, with the reason written next to the code.
 
+# Editions
+
+Omarchy ships a desktop edition and a headless server edition from this repo. The edition is chosen at install time and recorded in `/etc/omarchy-edition`; read it with `omarchy-edition` or gate on the `omarchy-edition-server` / `omarchy-edition-desktop` predicates.
+
+A new migration or refresh command that touches the compositor, the shell, or GUI config must gate on the edition. Anything the two editions share must not.
+
+[`docs/editions.md`](docs/editions.md) covers the marker, the two package lists, and the gating rules.
+
 # Privileged Commands
 
 - Follow the "Privilege Escalation" section of `default/agents/skills/omarchy/SKILL.md`. It draws the
@@ -110,7 +115,7 @@ Use these instead of raw shell commands:
 
 - `omarchy-cmd-missing` / `omarchy-cmd-present` - check for commands
 - `omarchy-pkg-missing` / `omarchy-pkg-present` - check for packages (don't use these if you can just use `omarchy-pkg-add`/`omarchy-pkg-drop`)
-- `omarchy-pkg-add` - install packages from the configured pacman repos, Omarchy's included; use `omarchy-pkg-aur-add` for AUR packages
+- `omarchy-pkg-add` - install packages (handles both pacman and AUR)
 - `omarchy-pkg-drop` - remove packages; use this instead of raw `pacman -R*`
 - `omarchy-notification-send` - send desktop notifications; do not call `notify-send` directly
 - `omarchy-hw-asus-rog` - detect ASUS ROG hardware (and similar `hw-*` commands)
@@ -118,11 +123,6 @@ Use these instead of raw shell commands:
 Commands installed by Omarchy's default package set are runtime invariants. Invoke them directly; do not add defensive `omarchy-cmd-present` / `omarchy-cmd-missing` checks around them. Use command-presence helpers only for genuinely optional dependencies or code that can run before the default package set is installed.
 
 Exceptions are allowed for migration and package-helper scripts where the helper may not be available yet, where the helper itself is being implemented, or where direct package-manager behavior is required.
-
-# Background Work
-
-- Long-running code (the shell, daemons, watchers) reacts to events instead of polling with a timer. Polling is the last resort, for state with no change signal; [`agents/skills/shell-dev.md`](agents/skills/shell-dev.md) lists the event sources and the push-refresh pattern.
-- `test/shell.d/shell-idle-spawn-test.sh` fails when an idle shell starts any process, and other tests hold the router, menu guards and theme switch to budgets; see "Performance guards" in [`docs/testing.md`](docs/testing.md).
 
 # Menu
 
@@ -150,27 +150,6 @@ test entry points:
 - `./test/all` - aggregate runner for CLI and shell tests; it intentionally does not run graphical acceptance tests
 - `./test/cli` - CLI routing, command metadata, theme helpers, and safe dispatch coverage
 - `./test/shell` - all Omarchy shell tests under `test/shell.d/`
-
-How to run them without wasting runs:
-
-- Run the files for what you changed directly: `bash test/shell.d/<area>-test.sh`. A change inside one plugin or command runs that area's files (and `i18n-test.sh` when catalog strings changed), not `./test/shell`.
-- Run `./test/shell` or `./test/all` only when the change reaches shared code (`shell/Commons/`, `base-test.sh`, the runners, a widely used `bin/` helper), and then once, at the end.
-- Always write the whole output to a log file and read it from there: `bash test/shell.d/<area>-test.sh >/tmp/<area>.log 2>&1`. Never pipe a test run straight through `grep`, `head` or `tail`: what they drop is gone, and getting it back costs a whole run. `./test/shell` keeps every file's log and prints the directory at the end; read a failure from its log.
-- Run a test again only after changing something it covers. Never rerun to see output, to confirm a pass, or in the hope that a failure goes away.
-- For a failure in a file you did not touch, run that one file once on the base branch (in a worktree, or with `git stash`). If it fails there too, it was already broken: report it and leave it out of this change.
-- Tests that use the live session (`require_compositor`, `shell-idle-spawn-test.sh`) read the real desktop, so the user working at it can fail them. One that fails in a full run and passes alone is session noise: say so; do not loop on it.
-
-When to add a test. A test earns its place only by catching a regression nothing else would; every one costs a maintainer to read and everyone a slower suite. Before writing one, name the breakage it would catch. If the answer is "someone edits the line I just added", don't write it.
-
-- No test for a small declarative change: a menu row, a config value, a package-list entry, a string, a rename. Those need no test of their own, and certainly not a new file.
-- Don't restate the implementation: grepping the source or config for the string you just added, asserting a value equals itself, or re-reading the file you edited to confirm the edit is there.
-- A test must fail without your change. Revert the fix, or reason it through, and check that the test goes red for the reason the change exists. One that stays green guards nothing.
-- Don't test your own stub. If a fake binary or fixture the test writes provides the behaviour under test, nothing real is tested.
-- No change-detectors: snapshots of large output, file lists, or exact counts that break whenever someone adds an unrelated entry.
-- Extend the area's existing test file (`git grep` the command or function under `test/`) rather than adding a new `*-test.sh`, and follow its style.
-- Keep tests in proportion to the change. A few lines of change rarely justify more than a few lines of test, and usually none.
-- No test for a migration. It runs once and is frozen once it ships; test logic it needs by moving that logic into a `bin/` command.
-- Do test real logic: parsing, routing, a guard on hardware without the feature, the edge case a fix handles. A bug fix with logic in it gets the one test that fails on the base branch and passes with the fix.
 
 New Omarchy shell tests should live in `test/shell.d/*-test.sh` so `./test/shell` picks them up automatically. Source `test/shell.d/base-test.sh` for shared root-path discovery, assertions, and Node test helpers.
 
