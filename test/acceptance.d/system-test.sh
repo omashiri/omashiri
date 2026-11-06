@@ -8,7 +8,9 @@ status=0
 
 verify_core_packages() {
   local package
-  local manifest="$OMARCHY_PATH/install/omarchy-base.packages"
+  local edition=base
+  omarchy-edition server && edition=server
+  local manifest="$OMARCHY_PATH/install/omarchy-$edition.packages"
   local -a missing=()
 
   # Without this, a missing manifest reads as an empty package list and the
