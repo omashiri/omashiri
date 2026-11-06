@@ -720,9 +720,15 @@ encrypted_install() {
 }
 
 create_user() {
+  local -
+  set +x
   # Pin the username so a retry after a later failure resumes this exact
-  # account rather than creating a second privileged one.
+  # account rather than creating a second privileged one. This also closes
+  # unattended enrollment: further attempts require a root recovery console.
   echo "$username" >"$PROVISIONING_DIR/setup-user"
+
+  # Establish recovery authentication before any later account setup can fail.
+  printf '%s:%s\n' root "$password" | chpasswd
 
   if getent passwd "$username" >/dev/null; then
     # Resuming a partially-completed earlier attempt: refresh what the form
@@ -733,7 +739,6 @@ create_user() {
   fi
 
   printf '%s:%s\n' "$username" "$password" | chpasswd
-  printf '%s:%s\n' root "$password" | chpasswd
 
   # deferred-provisioning installs skip archinstall's create_users, which is what normally
   # uncomments %wheel in /etc/sudoers. Always write the drop-in: detecting an
@@ -761,17 +766,17 @@ install_authorized_keys() {
 }
 
 configure_login() {
-  # The server's counterpart of the encrypted-install SDDM autologin below:
-  # behind a LUKS prompt, tty1 logs straight into the BBS greeting.
   if omarchy-edition-server; then
-    if encrypted_install; then
-      mkdir -p /etc/systemd/system/getty@tty1.service.d
-      # omarchy:heredoc-expands paths=none -- $username is the account created by create_user, not an executable path
-      cat >/etc/systemd/system/getty@tty1.service.d/autologin.conf <<CONF
+    local dropin=/etc/systemd/system/getty@tty1.service.d/autologin.conf
+    # Retire only the exact drop-in a previous provisioning attempt wrote.
+    # Symlinks and administrator edits belong to the administrator.
+    if [[ -f $dropin && ! -L $dropin ]] && cmp -s "$dropin" <(cat <<CONF
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty -o '-p -f -- \\\\u' --noclear --autologin $username %I \$TERM
 CONF
+    ); then
+      rm -f "$dropin"
     fi
     return 0
   fi
@@ -1126,7 +1131,6 @@ run_provisioning() {
   log_step "creating user $username"
   create_user
   install_authorized_keys
-  configure_login
 
   log_step "setting hostname to ${hostname:-omarchy}"
   configure_hostname
@@ -1162,6 +1166,8 @@ run_provisioning() {
     log_step "refusing to finish setup while the staged LUKS key or its auto-unlock remains"
     return 1
   fi
+
+  configure_login
 
   log_step "cleaning up provisioning state"
   cleanup_oem_state
@@ -1266,11 +1272,22 @@ run_setup() {
 # A failed first-boot setup must not strand the machine at a user-less login
 # screen. Each attempt runs as its own process — bash ignores errexit inside
 # `while !` conditions, but a child process keeps its own set -e — and failure
-# offers a retry; create_user and friends are idempotent, so retrying is safe.
+# offers a retry. --attempt is root-only; after enrollment it is run manually
+# from sulogin's authenticated console, never by the unattended retry loop.
 if [[ ${1:-} == "--attempt" ]]; then
   run_setup
   exit 0
 fi
+
+attempt_setup() {
+  if [[ -f $PROVISIONING_DIR/setup-user ]]; then
+    say "Authenticate as root to recover. Run 'omarchy-provision-owner --attempt' to retry setup, then exit the console."
+    sulogin || true
+    [[ ! -f $PROVISIONING_DIR/pending ]]
+  else
+    "$0" --attempt
+  fi
+}
 
 main() {
   # Font sizing waits for the console to settle, so it lives inside
@@ -1279,18 +1296,14 @@ main() {
   set_tokyo_night_colors
   greeter_screen
 
-  while ! "$0" --attempt; do
+  while ! attempt_setup; do
     clear_logo
     echo
     say --foreground 1 "Setup hit an error (details in $LOG_FILE)."
     echo
-    if ! gum confirm --affirmative "Try again" --negative "Drop to console" "Retry first-boot setup?"; then
-      # Give an actual usable console: this service owns tty1 (and Conflicts the
-      # getty), and on a failed deferred setup there's no user account and root
-      # is locked — so exiting would strand the machine with no way in. Exec a
-      # root shell on tty1; SDDM starts once it exits.
-      say "Dropping to a root shell. Run 'omarchy-provision-owner' to retry setup."
-      exec /bin/bash
+    if ! gum confirm --affirmative "Try again" --negative "Reboot" "Retry first-boot setup?"; then
+      systemctl reboot
+      return 1
     fi
   done
 }
