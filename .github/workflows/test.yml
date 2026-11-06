@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       SITE: https://nightly.omarchy.org
