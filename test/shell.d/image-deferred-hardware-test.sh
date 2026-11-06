@@ -126,7 +126,7 @@ reset_logs
 root=$(new_root real)
 write_manifest "$root"
 output=$(build "$root" "$ROOT") || fail "an image build defers the real hardware setup" "$output"
-expected=$(sed -n 's|^run_logged "\$OMARCHY_INSTALL/\(hardware/[^"]*\)"$|install/\1|p' "$ROOT/install/hardware/all.sh")
+expected=$(sed -n 's|^[[:space:]]*run_logged "\$OMARCHY_INSTALL/\(hardware/[^"]*\)"$|install/\1|p' "$ROOT/install/hardware/all.sh")
 [[ -n $expected && $(queue_of "$root") == "$expected" ]] ||
   fail "an image build queues every hardware leaf in order" "expected:
 $expected
