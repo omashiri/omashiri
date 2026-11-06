@@ -77,4 +77,21 @@ Server updates now require the snapshot command to succeed before changing the c
 
 Track runtime package ownership in [#12](https://github.com/omashiri/omashiri/issues/12), publishing and trust in [#18](https://github.com/omashiri/omashiri/issues/18), and update/reinstall behavior in [#6](https://github.com/omashiri/omashiri/issues/6). Selected upstream package sources can remain dependencies where intentional and documented; independence does not require rebuilding every Arch package.
 
+## Runtime package boundary
+
+The recipe audit examined upstream `omacom/omarchy-pkgs` at `ceeeebabf593c07f27495b1d1cf775c059f60ab7` and the existing Omashiri package repository through `a62197d4ce14d331168f8529dee07129017ec640`. The latter already contains server/settings, SSH/firewall, boot/kernel, and publication work. Reuse it; the initial empty-repository description is historical.
+
+The next package change is an independent `omashiri-runtime`, matching source pins for the retained defaults in `omashiri-settings`, and a dependency from `omashiri-server`. Upstream runtime packages directly require the desktop stack, and their broad payload must not be copied wholesale with only the dependencies removed.
+
+Retain legacy command paths initially, including `/usr/share/omarchy`, because the security helpers validate that layout. Select the actual command and source-file closure: environment/Bash bootstrap, command libraries and i18n, reviewed setup/migrations, terminal theme inputs, platform boot dispatch, encryption/UKI templates, and snapshot recovery. Retarget the update ALPM guard's package dependency to the new runtime and omit graphical reload hooks. Optional passwordless-sudo grants require their revocation hooks, cleanup, and lifecycle handling together; omit the feature as a whole if it is not retained.
+
+Declare conflicts for overlapping upstream runtime/settings packages without advertising desktop compatibility through `provides=omarchy`. Preserve migration completion state and give every installed file one intentional owner. Version, channel, refresh, reinstall, and keyring commands must recognize the same runtime/settings owners and intended repositories.
+
+Two initialization boundaries require changes before a package build proves a usable image:
+
+- The inherited initramfs baseline includes Plymouth. Adapt the hooks before excluding that package, preserving keyboard, console, encryption, filesystem, and recovery support; verify the provider for `btrfs-overlayfs` as well.
+- Existing `omashiri-settings` owns `/etc/snapper/configs/root`, while retained setup creates the root Snapper configuration only when it is absent. Reconcile file ownership with filesystem/subvolume initialization so a preinstalled config cannot accidentally skip required setup.
+
+The audited publisher signs artifacts, but source PGP verification is skipped and recipes without build dependencies can skip dependency checks. A successful publication therefore does not prove source verification or runtime closure. Establish authenticated Omashiri key bootstrap, inspect built `.PKGINFO` and payloads, resolve the full installed transaction, check file ownership without an overwrite bypass, and test signed upgrades before claiming the package boundary is complete. Live repository contents, deployed signing identities, and complete architecture availability were not verified by the recipe audit.
+
 The first release must demonstrate install → authenticated console/SSH → update → reboot → SSH, plus snapper recovery and any retained encrypted-boot flow. Record package closure, source revisions, signatures, artifact checksums, installed size, idle memory, and validated platforms. Until these pass, describe the image as development work rather than a supported server release.
