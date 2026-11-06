@@ -19,8 +19,8 @@ case $platform in
   qualcomm) platform=aarch64-qualcomm ;;
 esac
 
-# Determine base list based on edition
-if command -v omarchy-edition >/dev/null 2>&1 && omarchy-edition server >/dev/null 2>&1; then
+edition=$(omarchy-edition)
+if [[ $edition == "server" ]]; then
   base_list="server"
 else
   base_list="base"
