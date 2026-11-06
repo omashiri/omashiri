@@ -269,7 +269,7 @@ SETUP_PHASE_T0=0
 SETUP_T0=0
 NOW=0
 FINALIZE_BASE=-1
-FINALIZE_TOTAL=$(grep -c '^run_logged' "$OMARCHY_PATH/install/user/all.sh" 2>/dev/null || echo 0)
+FINALIZE_TOTAL=$(grep -c '^[[:space:]]*run_logged' "$OMARCHY_PATH/install/user/all.sh" 2>/dev/null || echo 0)
 
 # Whether this boot will re-key LUKS (encrypted installs stage a throwaway key).
 # The re-key rebuilds the UKI and is the slowest single step, so it needs a wide
