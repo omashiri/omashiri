@@ -8,12 +8,12 @@ if lspci -nn | grep "106b:180[12]" >/dev/null; then
   # single-boot install that wiped macOS has no such volume, so the fetch comes
   # up empty; those machines need the firmware supplied from a macOS copy or a
   # downloaded recovery image instead.
-  omarchy-pkg-add \
-    linux-t2 \
-    linux-t2-headers \
-    apple-t2-audio-config \
-    apple-bcm-firmware-fetcher \
-    t2fanrd
+  PACKAGES=(linux-t2 linux-t2-headers)
+  if omarchy-edition-desktop; then
+    PACKAGES+=(apple-t2-audio-config)
+  fi
+  PACKAGES+=(apple-bcm-firmware-fetcher t2fanrd)
+  omarchy-pkg-add "${PACKAGES[@]}"
 
   # Enable T2 fan control
   systemctl enable t2fanrd.service

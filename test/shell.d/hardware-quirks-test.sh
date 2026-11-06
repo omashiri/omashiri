@@ -6,6 +6,8 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 test_tmp=$(mktemp -d)
 trap 'chmod -R u+rwX "$test_tmp"; rm -rf "$test_tmp"' EXIT
+export PATH="$ROOT/bin:$PATH"
+export OMARCHY_EDITION_FILE="$test_tmp/edition"
 
 # --- Every setup step is reached ---
 
@@ -337,3 +339,66 @@ run_leaf user/hardware/fix-nouveau-cursor.sh >/dev/null
 (( $(grep -c 'no_hardware_cursors = true' "$root/home/.config/hypr/looknfeel.lua") == 1 )) ||
   fail "nouveau cursor setup enables software cursors once however often it runs"
 pass "nouveau cursor setup is idempotent"
+
+# A queued leaf can also be replayed directly, without its all.sh caller.
+for edition in desktop server; do
+  echo "$edition" >"$OMARCHY_EDITION_FILE"
+  for leaf in bluetooth.sh vulkan.sh intel/video-acceleration.sh intel/ipu7-camera.sh \
+    qualcomm/camera.sh lenovo/thinkpad-t14s-camera.sh fix-elgato-camlink-4k.sh speaker-tuning.sh; do
+    status=0
+    calls=$(bash -eE -c '
+      lspci() { echo "VGA controller: Intel Corporation HD Graphics"; }
+      omarchy-hw-aarch64-qualcomm() { return 0; }
+      omarchy-hw-match() { return 0; }
+      omarchy-hw-elgato-camlink-4k() { return 0; }
+      omarchy-audio-tuning() { return 0; }
+      grep() { [[ $* == *OVTI08F4* ]] || command grep "$@"; }
+      omarchy-pkg-add() { echo "pkg-add $*"; return 1; }
+      systemctl() { echo "systemctl $*"; return 1; }
+      source "$1"
+    ' bash "$ROOT/install/hardware/$leaf") || status=$?
+    if [[ $edition == "server" ]]; then
+      [[ $status == 0 && -z $calls ]] || fail "server hardware setup skips $leaf" "$calls"
+    else
+      [[ $status == 1 && -n $calls ]] || fail "desktop hardware setup reaches $leaf" "$calls"
+    fi
+  done
+done
+pass "desktop hardware leaves reach matching hardware only on desktops, including direct queue replay"
+
+for edition in desktop server; do
+  echo "$edition" >"$OMARCHY_EDITION_FILE"
+  for leaf in n1x.sh apple/fix-t2.sh; do
+    mixed_root="$test_tmp/mixed-$edition-${leaf##*/}"
+    mkdir -p "$mixed_root/etc/kernel" "$mixed_root/etc/udev/rules.d" "$mixed_root/etc/modprobe.d"
+    echo 'root=UUID=test' >"$mixed_root/etc/kernel/cmdline"
+    echo '1.0.4' >"$mixed_root/bios_version"
+    sed -e "s|/etc/|$mixed_root/etc/|g" \
+      -e "s|/sys/class/dmi/id/bios_version|$mixed_root/bios_version|g" \
+      "$ROOT/install/hardware/$leaf" >"$mixed_root/setup.sh"
+    output=$(bash -eE -c '
+      omarchy-hw-aarch64-n1x() { return 0; }
+      omarchy-hw-match() { return 1; }
+      lspci() { echo "Bridge: Apple T2 [106b:1801]"; }
+      omarchy-pkg-add() { echo "pkg-add $*"; }
+      omarchy-pkg-drop() { echo "pkg-drop $*"; }
+      systemctl() { echo "systemctl $*"; }
+      source "$1"
+    ' bash "$mixed_root/setup.sh") || fail "$edition setup retains $leaf hardware support"
+    if [[ $leaf == "n1x.sh" ]]; then
+      [[ $output == *'pkg-add linux-omarchy-nvidia-open nvidia-utils'* && -s $mixed_root/etc/mkinitcpio.conf.d/nvidia.conf ]] ||
+        fail "$edition N1x setup retains the GPU driver and early console"
+      desktop_package=libva-nvidia-driver
+    else
+      [[ $output == *linux-t2* && $output == *apple-bcm-firmware-fetcher* && $output == *'systemctl enable t2fanrd.service'* && -s $mixed_root/etc/mkinitcpio.conf.d/apple-t2.conf ]] ||
+        fail "$edition T2 setup retains the kernel, firmware, fan control and early keyboard"
+      desktop_package=apple-t2-audio-config
+    fi
+    if [[ $edition == "server" ]]; then
+      [[ $output != *"$desktop_package"* ]] || fail "server $leaf skips desktop packages" "$output"
+    else
+      [[ $output == *"$desktop_package"* ]] || fail "desktop $leaf retains desktop packages" "$output"
+    fi
+  done
+done
+pass "mixed N1x and T2 leaves keep server hardware support and desktop-only additions by edition"
