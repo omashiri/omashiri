@@ -7,6 +7,8 @@ source "$SHELL_TEST_DIR/fixtures/sudo-boundary-test.sh"
 copy_boundary_file bin/omarchy-update
 test_tmp="$boundary_tmp"
 stub_bin="$SUDO_TEST_ROOT/bin"
+export OMARCHY_EDITION_FILE="$test_tmp/edition"
+printf 'desktop\n' >"$OMARCHY_EDITION_FILE"
 
 # Every step omarchy-update runs, recorded in order with the unattended flag it
 # was handed. One of them can be told to fail. omarchy-update-available is here
@@ -146,3 +148,12 @@ diff <(expected_steps) <(steps_run) >"$test_tmp/order" ||
   fail "a failed mise update skips later update steps" "$(cat "$test_tmp/order")"
 grep -q "omarchy update mise" "$test_tmp/err" || fail "the tool update failure has no retry guidance"
 pass "a mise failure still finishes the update, offers a reboot and explains how to retry"
+
+printf 'server\n' >"$OMARCHY_EDITION_FILE"
+FAILING_STEP=omarchy-shell run_update -y || fail "a server update completes without the desktop shell"
+! grep -Eq '^omarchy-(shell|restart-shell) ' "$test_tmp/steps" ||
+  fail "a server update invokes no desktop shell commands" "$(cat "$test_tmp/steps")"
+for step in omarchy-migrate omarchy-update-boot omarchy-update-restart; do
+  grep -q "^$step " "$test_tmp/steps" || fail "a server update still runs $step"
+done
+pass "a server update skips desktop IPC while retaining migrations, boot verification and restart handling"
