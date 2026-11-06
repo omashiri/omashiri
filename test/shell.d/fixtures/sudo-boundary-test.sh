@@ -38,6 +38,9 @@ PY
 }
 
 copy_boundary_file bin/omarchy-security-functions
+copy_boundary_file bin/omarchy-edition
+copy_boundary_file bin/omarchy-edition-desktop
+export OMARCHY_EDITION_FILE="$boundary_tmp/edition"
 copy_boundary_file bin/omarchy-update-pacman
 copy_boundary_file install/helpers/pacman.sh
 # Channel changes copy the platform's templates; the copy itself is a stand-in.

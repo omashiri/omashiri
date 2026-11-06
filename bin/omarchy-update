@@ -68,6 +68,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+edition=$(omarchy-edition)
 omarchy-update-requires-free-space
 
 # -y skips the start confirmation and, unless the caller set
@@ -83,11 +84,16 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   # after it frees nothing until that snapshot ages out.
   omarchy-update-pkg-prune
 
-  # 127 means Snapper is deliberately absent. Any other failure already said
-  # what went wrong, and a missing snapshot is not worth blocking an update
-  # over, but it must not pass for one either.
-  omarchy-snapshot create || (($? == 127)) ||
-    echo -e "\e[33mContinuing the update without a snapshot.\e[0m" >&2
+  snapshot_status=0
+  omarchy-snapshot create || snapshot_status=$?
+  if (( snapshot_status != 0 )); then
+    if [[ $edition == "server" ]]; then
+      echo "Server update stopped: a recovery snapshot is required. Fix Snapper configuration or storage errors and retry." >&2
+      exit "$snapshot_status"
+    elif (( snapshot_status != 127 )); then
+      echo -e "\e[33mContinuing the update without a snapshot.\e[0m" >&2
+    fi
+  fi
 
   omarchy-update-stay-awake start
 
@@ -101,7 +107,7 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   omarchy-update-system-pkgs
 
   # Migrations call the shell over IPC, so give them one running current code.
-  if omarchy-migrate --pending >/dev/null; then
+  if [[ $edition == "desktop" ]] && omarchy-migrate --pending >/dev/null; then
     omarchy-restart-shell || true
   fi
   omarchy-migrate
@@ -112,7 +118,9 @@ if [[ ${1:-} == "-y" ]] || omarchy-update-confirm; then
   # The dev checkout was fast-forwarded and the full upgrade went through, so
   # there is no Omarchy update left to show. Rechecking would download every
   # sync database again and refetch the checkout only to hear the same.
-  omarchy-shell -q omarchy.system-update clear
+  if [[ $edition == "desktop" ]]; then
+    omarchy-shell -q omarchy.system-update clear
+  fi
 
   # Service restart helpers can need sudo. The reboot-only phase below
   # performs no privileged work.

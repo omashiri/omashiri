@@ -1,5 +1,7 @@
 # Editions
 
+This reference describes the inherited Omarchy edition mechanism. Omashiri's independent distribution scope and release requirements are defined in the [server image specification](../plans/omashiri.md).
+
 Omarchy ships two editions from one repo. The desktop edition is the historical one: Hyprland, the Quickshell shell, GUI applications. The server edition is headless: a getty on the console, SSH as the primary access, and no compositor.
 
 The edition is chosen at install time and never toggled afterwards. Uninstalling a GUI stack in place is a migration minefield in both directions, so changing your mind is a reinstall.
@@ -37,7 +39,7 @@ An unrecognized marker fails loudly: `omarchy-edition` exits non-zero and both p
 | `install/omarchy-base.packages` | desktop |
 | `install/omarchy-server.packages` | server |
 
-The server list is derived from the base list by subtraction, plus three additions the base list cannot supply: `openssh` (the desktop gets it from the ISO's own `archinstall.packages`), `rsync`, and `lazyjournal` (the menu's log door, packaged in `omarchy-pkgs`). `test/shell.d/server-packages-test.sh` enforces that shape: anything in the server list that is neither in the base list nor a declared addition fails the suite.
+The server list is a positive manifest, independent of the desktop base list. `test/shell.d/server-packages-test.sh` checks its headless package selection and optional remote-unlock dependencies. Platform additions and transitive package dependencies still need a complete headless audit. Kernel, boot, recovery, and OpenSSH provisioning must also be checked against the companion ISO's bootstrap package selection; this manifest alone does not describe the complete installed system.
 
 Commands that install the default package set pick their list from the edition. `omarchy-reinstall-pkgs` is the example to copy.
 

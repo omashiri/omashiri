@@ -1,15 +1,17 @@
 #!/bin/bash
 
 # omarchy:summary=Set up the OpenSSH server, open the firewall, and authorize an SSH key
-# omarchy:args=[--key=<public-key>] [--gh-keys <github-username>]
+# omarchy:args=[--key=<public-key> | --gh-keys <github-username> | --authorized-keys=<file>] [--user=<local-user>]
 # omarchy:examples=omarchy-setup-security-sshd | omarchy-setup-security-sshd --gh-keys dhh | omarchy-setup-security-sshd --key="ssh-ed25519 AAAA... user@host"
 # omarchy:requires-sudo=true
 
-set -e
+set -euo pipefail
 
 AUTHORIZED_KEYS="$HOME/.ssh/authorized_keys"
 KEY=""
 GITHUB_USER=""
+KEYS_FILE=""
+SSH_USER="${USER:-$(id -un)}"
 
 # Checked while parsing, before anything is installed or opened: an empty or
 # option-shaped username otherwise falls through to the interactive menu having
@@ -24,6 +26,19 @@ require_github_user() {
 
 while (( $# > 0 )); do
   case "$1" in
+  --authorized-keys=*)
+    KEYS_FILE="${1#*=}"
+    [[ -n $KEYS_FILE ]] || { echo "--authorized-keys needs a file" >&2; exit 2; }
+    ;;
+  --user=*)
+    (( EUID == 0 )) || { echo "--user requires root" >&2; exit 2; }
+    SSH_USER="${1#*=}"
+    [[ -n $SSH_USER && $SSH_USER != -* ]] || exit 2
+    owner=$(getent passwd -- "$SSH_USER") || exit 1
+    HOME=$(cut -d: -f6 <<<"$owner")
+    [[ $HOME == /* && -d $HOME ]] || exit 1
+    AUTHORIZED_KEYS="$HOME/.ssh/authorized_keys"
+    ;;
   --key=*) KEY="${1#--key=}" ;;
   --gh-keys=*)
     GITHUB_USER="${1#--gh-keys=}"
@@ -35,13 +50,13 @@ while (( $# > 0 )); do
     require_github_user "$GITHUB_USER"
     ;;
   -h | --help)
-    echo "Usage: omarchy-setup-security-sshd [--key=<public-key>] [--gh-keys <github-username>]"
+    echo "Usage: omarchy-setup-security-sshd [--key=<public-key> | --gh-keys <github-username> | --authorized-keys=<file>] [--user=<local-user>]"
     echo
     echo "Sets up the OpenSSH server, opens the SSH port in the UFW firewall,"
     echo "and authorizes an SSH key (from GitHub, pasted, or passed via --key)."
     echo
-    echo "Passing --key or --gh-keys skips the prompts, so the command can run"
-    echo "unattended from a script or a fresh machine's first login."
+    echo "Passing --key, --gh-keys or --authorized-keys skips the prompts;"
+    echo "--user selects the local account when run as root."
     exit 0
     ;;
   *)
@@ -52,14 +67,13 @@ while (( $# > 0 )); do
   shift
 done
 
-if [[ -n $KEY && -n $GITHUB_USER ]]; then
-  echo "omarchy-setup-security-sshd: pass either --key or --gh-keys, not both." >&2
+if (( ${#KEY} > 0 && ${#GITHUB_USER} > 0 || ${#KEYS_FILE} > 0 && (${#KEY} > 0 || ${#GITHUB_USER} > 0) )); then
+  echo "omarchy-setup-security-sshd: choose one key source." >&2
   exit 2
 fi
 
-install_openssh() {
-  echo "Installing the OpenSSH server..."
-  omarchy-pkg-add openssh
+prepare_host_keys() {
+  echo "Preparing OpenSSH host keys..."
 
   # sshd validates no config without host keys, and the server is not started
   # until its config has been validated.
@@ -75,18 +89,18 @@ start_sshd() {
 }
 
 open_firewall() {
-  if omarchy-cmd-missing ufw; then
-    echo "UFW is not installed; skipping firewall rule."
-    return
-  fi
-
   echo "Opening the SSH port in the firewall (rate limited against brute force)..."
-  sudo ufw limit 22/tcp comment "omarchy-sshd" >/dev/null
-  sudo ufw reload >/dev/null
+  local port
+  while read -r port; do
+    sudo ufw insert 1 limit "$port/tcp" comment "omarchy-sshd" >/dev/null
+  done < <(awk 'tolower($1) == "port" {print $2}' <<<"$effective_config")
+  sudo ufw --force enable >/dev/null
+  sudo systemctl enable ufw.service
 }
 
 valid_key() {
-  ssh-keygen -lf /dev/stdin <<<"$1" >/dev/null 2>&1
+  [[ $1 == ssh-* || $1 == ecdsa-* || $1 == sk-* ]] &&
+    ssh-keygen -lf /dev/stdin <<<"$1" >/dev/null 2>&1
 }
 
 authorize_key() {
@@ -97,21 +111,29 @@ authorize_key() {
     return 1
   fi
 
+  if [[ -L $HOME/.ssh || -L $AUTHORIZED_KEYS ]]; then
+    echo "Refusing to modify symlinked SSH enrollment paths." >&2
+    return 1
+  fi
   mkdir -p "$HOME/.ssh"
   chmod 700 "$HOME/.ssh"
   touch "$AUTHORIZED_KEYS"
   chmod 600 "$AUTHORIZED_KEYS"
 
+  if (( EUID == 0 )); then
+    chown "$SSH_USER:" "$HOME/.ssh" "$AUTHORIZED_KEYS"
+  fi
+
   if grep -qxF "$key" "$AUTHORIZED_KEYS"; then
     echo "Key already authorized: $(ssh-keygen -lf /dev/stdin <<<"$key")"
   else
-    echo "$key" >>"$AUTHORIZED_KEYS"
+    printf '\n%s\n' "$key" >>"$AUTHORIZED_KEYS"
     echo "Authorized key: $(ssh-keygen -lf /dev/stdin <<<"$key")"
   fi
 }
 
 authorize_keys_from_github() {
-  local username="$1" keys added=0
+  local username="$1" keys
 
   echo "Fetching keys from https://github.com/$username.keys..."
   if ! keys=$(curl -fsSL "https://github.com/$username.keys") || [[ -z $keys ]]; then
@@ -119,15 +141,23 @@ authorize_keys_from_github() {
     exit 1
   fi
 
-  while IFS= read -r key; do
-    [[ -z $key ]] && continue
-    authorize_key "$key" && added=$((added + 1))
-  done <<<"$keys"
+  authorize_keys "$keys"
+}
 
-  if (( added == 0 )); then
-    echo -e "\e[31mNo valid SSH keys found for GitHub user '$username'.\e[0m" >&2
-    exit 1
-  fi
+# Validate the entire batch before adding any key or changing server state.
+authorize_keys() {
+  local keys="$1" key count=0
+  while IFS= read -r key || [[ -n $key ]]; do
+    [[ -z $key || $key == \#* ]] && continue
+    valid_key "$key" || { echo "Invalid SSH public key in enrollment." >&2; return 1; }
+    count=$((count + 1))
+  done <<<"$keys"
+  (( count > 0 )) || { echo "No SSH public keys supplied." >&2; return 1; }
+  ENROLLED_KEYS=$keys
+  while IFS= read -r key || [[ -n $key ]]; do
+    [[ -z $key || $key == \#* ]] && continue
+    authorize_key "$key"
+  done <<<"$keys"
 }
 
 prompt_for_github_user() {
@@ -151,14 +181,14 @@ authorize_pasted_key() {
     exit 1
   fi
 
-  authorize_key "$key" || exit 1
+  authorize_keys "$key"
 }
 
 # Only called after a key is authorized. Disabling password authentication
 # before then could lock the owner out of the machine.
 disable_password_auth() {
   local config=/etc/ssh/sshd_config.d/10-omarchy-hardening.conf
-  local effective_config
+  local created=0 context dump accepted algorithm
 
   if [[ ! -s $AUTHORIZED_KEYS ]]; then
     echo -e "\e[31mCannot disable SSH password authentication without an authorized key.\e[0m" >&2
@@ -166,18 +196,21 @@ disable_password_auth() {
   fi
 
   echo "Disabling SSH password authentication, now that a key is authorized..."
-  sudo install -Dm644 /dev/stdin "$config" <<'CONF'
+  if [[ ! -e $config && ! -L $config ]]; then
+    sudo install -Dm644 /dev/stdin "$config" <<'CONF'
 # Written by omarchy-setup-security-sshd once an SSH key was authorized.
 # Delete this file and reload sshd to allow password logins again.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 CONF
+    created=1
+  fi
 
   # Validate before reloading: a config sshd rejects would otherwise take the
   # service down on its next restart, potentially stranding a remote owner.
   if ! sudo sshd -t; then
-    echo -e "\e[31msshd rejected the hardening config; removing it and leaving passwords on.\e[0m" >&2
-    sudo rm -f "$config"
+    echo "sshd rejected its configuration; SSH enrollment is incomplete." >&2
+    if (( created )); then sudo rm -f "$config"; fi
     return 1
   fi
 
@@ -185,11 +218,36 @@ CONF
   # these settings. An earlier administrator rule could leave passwords enabled.
   # Match keywords case-insensitively: OpenSSH 9.x dumps them lowercase, 10.x
   # in CamelCase.
-  if ! effective_config=$(sudo sshd -T) ||
-    ! grep -qixF "passwordauthentication no" <<<"$effective_config" ||
-    ! grep -qixF "kbdinteractiveauthentication no" <<<"$effective_config"; then
-    echo -e "\e[31msshd did not apply the password-authentication restrictions; removing the ineffective config.\e[0m" >&2
-    sudo rm -f "$config"
+  for context in "" "user=$SSH_USER,host=$(hostname),addr=127.0.0.1"; do
+    if [[ -n $context ]]; then
+      dump=$(sudo sshd -T -C "$context") || return 1
+    else
+      dump=$(sudo sshd -T) || return 1
+      effective_config=$dump
+    fi
+    if ! grep -qixF "passwordauthentication no" <<<"$dump" ||
+      ! grep -qixF "kbdinteractiveauthentication no" <<<"$dump" ||
+      ! grep -qixF "pubkeyauthentication yes" <<<"$dump" ||
+      ! grep -qiEx 'authenticationmethods (any|publickey)' <<<"$dump" ||
+      ! awk -v path="$AUTHORIZED_KEYS" 'tolower($1) == "authorizedkeysfile" {for (i=2; i<=NF; i++) if ($i == ".ssh/authorized_keys" || $i == path) found=1} END {exit !found}' <<<"$dump"; then
+      echo "sshd did not apply usable key-only authentication; check administrator configuration." >&2
+      if (( created )); then sudo rm -f "$config"; fi
+      return 1
+    fi
+    accepted=$(awk 'tolower($1) == "pubkeyacceptedalgorithms" {print $2}' <<<"$dump")
+    while read -r algorithm _; do
+      [[ -z $algorithm || $algorithm == \#* ]] && continue
+      if [[ ,$accepted, == *,$algorithm,* ||
+        $algorithm == "ssh-rsa" && ( ,$accepted, == *,rsa-sha2-256,* || ,$accepted, == *,rsa-sha2-512,* ) ]]; then
+        continue
+      fi
+      echo "sshd does not accept enrolled key type $algorithm." >&2
+      if (( created )); then sudo rm -f "$config"; fi
+      return 1
+    done <<<"$ENROLLED_KEYS"
+  done
+  if ! grep -qiE '^port [0-9]+$' <<<"$effective_config"; then
+    echo "sshd has no usable TCP port." >&2
     return 1
   fi
 }
@@ -198,11 +256,16 @@ echo -e "\e[32mSetting up SSH server access with key-based authentication.\n\e[0
 
 # Nothing listens and no port opens until a key is authorized and passwords are
 # off, so a cancelled prompt or a rejected key leaves the machine as it was.
-install_openssh
+if systemd-detect-virt --chroot --quiet; then
+  echo "SSH enrollment must run on the booted system, outside the install chroot." >&2
+  exit 1
+fi
 
 echo
-if [[ -n $KEY ]]; then
-  authorize_key "$KEY" || exit 1
+if [[ -n $KEYS_FILE ]]; then
+  authorize_keys "$(cat "$KEYS_FILE")"
+elif [[ -n $KEY ]]; then
+  authorize_keys "$KEY"
 elif [[ -n $GITHUB_USER ]]; then
   authorize_keys_from_github "$GITHUB_USER"
 else
@@ -215,10 +278,11 @@ else
   esac
 fi
 
+prepare_host_keys
 disable_password_auth
-start_sshd
 open_firewall
+start_sshd
 
 echo -e "\e[32m\nPerfect! The SSH server is running and your key is authorized.\e[0m"
 echo "Password logins are off; this machine now accepts authorized keys only."
-echo "You can now connect with: ssh $USER@$(hostname)"
+echo "You can now connect with: ssh $SSH_USER@$(hostname)"

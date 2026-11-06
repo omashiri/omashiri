@@ -8,8 +8,10 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 assert_packages() {
   local description="$1" architecture="$2" driver="$3" expected="$4"
   local actual
+  local edition=${5:-desktop}
   actual=$(TEST_ARCH="$architecture" TEST_DRIVER="$driver" \
-    bash -euo pipefail -c '
+    TEST_EDITION="$edition" bash -euo pipefail -c '
+      omarchy-edition-desktop() { [[ $TEST_EDITION == "desktop" ]]; }
       lspci() { printf "%s\n" "3D controller: NVIDIA Corporation"; }
       omarchy-hw-aarch64-n1x() { return 1; }
       omarchy-hw-x86() { [[ $TEST_ARCH == "x86_64" ]]; }
@@ -33,3 +35,10 @@ assert_packages "x86 GSP package selection adds multilib" x86_64 gsp \
   'linux-omarchy-nvidia-open nvidia-utils lib32-nvidia-utils libva-nvidia-driver'
 assert_packages "x86 legacy package selection stays unchanged" x86_64 legacy \
   'nvidia-580xx-dkms nvidia-580xx-utils lib32-nvidia-580xx-utils'
+
+assert_packages "server GSP keeps native compute drivers without desktop video or multilib" x86_64 gsp \
+  'linux-omarchy-nvidia-open nvidia-utils' server
+assert_packages "server legacy keeps native compute drivers without multilib" x86_64 legacy \
+  'nvidia-580xx-dkms nvidia-580xx-utils' server
+assert_packages "GB10 server keeps native GSP compute drivers" aarch64 gsp \
+  'linux-omarchy-nvidia-open nvidia-utils' server

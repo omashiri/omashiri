@@ -1,3 +1,5 @@
+omarchy-edition-desktop || return 0
+
 # Expose the Elgato Cam Link 4K as a 16:9-only virtual camera.
 # Browsers ask it for 640x480, which it fills by cropping, and the 4:3 frame
 # then gets stretched into a 16:9 tile. The raw node is hidden from users and

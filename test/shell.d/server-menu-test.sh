@@ -55,6 +55,13 @@ done
 [[ $wide_plain == *"select"* && $wide_plain == *"jump"* ]] || fail "the menu draws its key legend"
 pass "the menu draws both panes and the key legend"
 
+if df --version >/dev/null 2>&1; then
+  [[ $wide_plain =~ Disk[^$'\n']*free ]] || fail "the menu reports available disk space with GNU df"
+  pass "the menu reports available disk space with GNU df"
+else
+  skip "GNU df is required to check the menu's disk reading"
+fi
+
 # A board with more than one line numbered them and told the caller which one
 # they were on, which is the same fact as concurrent sessions.
 signed=$(menu COLUMNS=100 USER=sysop | strip_ansi)

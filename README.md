@@ -1,77 +1,49 @@
-# Omarchy
+# Omashiri
 
-Omarchy is a beautiful, fun & agentic Linux distribution by DHH.
+Omashiri is an Arch-based Linux server distribution under development. It borrows selected kernel, boot/UKI, btrfs/snapper, and maintenance infrastructure from [Omarchy](https://github.com/omacom/omarchy), while defining its own headless package selection, defaults, and release process.
 
-Read more at [omarchy.org](https://omarchy.org).
+The goal is a small system that boots to a console, is administered over SSH, and supports reliable updates and recovery. The first target is a standalone server; small VMs for Recur workspace isolation are a later use.
 
-## The Omarchy Manual
+## Development status
 
-The manual lives in [`manual/`](manual/), which is its authoritative source.
+This repository is being reduced from an Omarchy Server Edition starting point. It still contains inherited desktop code and configuration. A positive server package manifest and initial headless provisioning/update guards are implemented, but the complete package dependency closure and installed payload have not been validated as desktop-free.
 
-- [Welcome to Omarchy!](manual/01-welcome-to-omarchy.md)
+The first Omashiri ISO and the full install → SSH → update → reboot → recovery flow have not been validated. Remote LUKS unlock is experimental and opt-in; it has not been proven through an encrypted boot. There are no production installation instructions yet.
 
-**The Basics**
+Remaining release work includes secure first-boot access, independent runtime packaging and signing, package/channel ownership, server-only ISO composition, and measured disk/memory use. Follow the [first-release tracker](https://github.com/omashiri/omashiri/issues/4) for implementation and acceptance criteria.
 
-- [Getting Started](manual/02-getting-started.md)
-- [Coming From Mac or Windows](manual/03-coming-from-mac-or-windows.md)
-- [Navigation](manual/04-navigation.md)
-- [The top bar](manual/05-the-top-bar.md)
-- [Themes](manual/06-themes.md)
-- [Hotkeys](manual/07-hotkeys.md)
-- [Unified Clipboard & History](manual/08-unified-clipboard-history.md)
-- [Reminders](manual/09-reminders.md)
-- [Notices](manual/10-notices.md)
-- [Text Extraction & Dictation](manual/11-text-extraction-dictation.md)
-- [Screenshots & Recording](manual/12-screenshots-recording.md)
-- [Toggles, idle & screensaver](manual/13-toggles-idle-screensaver.md)
-- [Omarchy CLI](manual/14-omarchy-cli.md)
+## Repositories
 
-**The Applications**
+| Repository | Role |
+| --- | --- |
+| [omashiri](https://github.com/omashiri/omashiri) | Server package selection, target-side setup, defaults, and maintenance commands |
+| [omashiri-iso](https://github.com/omashiri/omashiri-iso) | ISO composition and disk installation orchestration |
+| [omashiri-pkgs](https://github.com/omashiri/omashiri-pkgs) | Build recipes and publication for required custom packages |
 
-- [Terminal](manual/15-terminal.md)
-- [Neovim](manual/16-neovim.md)
-- [AI](manual/17-ai.md)
-- [Development Tools](manual/18-development-tools.md)
-- [Shell Tools](manual/19-shell-tools.md)
-- [Shell Functions](manual/20-shell-functions.md)
-- [TUIs](manual/21-tuis.md)
-- [GUIs](manual/22-guis.md)
-- [Browsers](manual/23-browsers.md)
-- [Commercial apps/services](manual/24-commercial-apps-services.md)
-- [Web Apps](manual/25-web-apps.md)
-- [Gaming](manual/26-gaming.md)
-- [Filling out PDFs](manual/27-filling-out-pdfs.md)
-- [Windows VM](manual/28-windows-vm.md)
-- [Other Packages](manual/29-other-packages.md)
+Arch supplies the base package ecosystem. Omashiri is responsible for its own releases and support decisions. The installer and ISO repositories retain their Omarchy fork relationships to make upstream comparison and selected imports easier. Upstream changes are reviewed and tested before inclusion; a moving Omarchy branch is not an Omashiri release channel.
 
-**Configuration**
+Existing `omarchy-*` commands and `OMARCHY_*` identifiers remain during the transition. Broad renaming follows a working, validated server image.
 
-- [Updates](manual/30-updates.md)
-- [Dotfiles](manual/31-dotfiles.md)
-- [Shell plugins](manual/32-shell-plugins.md)
-- [Monitors](manual/33-monitors.md)
-- [Keyboard, Mouse, Trackpad](manual/34-keyboard-mouse-trackpad.md)
-- [Networking](manual/35-networking.md)
-- [System sleep](manual/36-system-sleep.md)
-- [Hardware authentication](manual/37-hardware-authentication.md)
-- [Fonts](manual/38-fonts.md)
-- [Backgrounds](manual/39-backgrounds.md)
-- [Prompt](manual/40-prompt.md)
-- [Branding](manual/41-branding.md)
-- [Common tweaks](manual/42-common-tweaks.md)
-- [Making your own theme](manual/43-making-your-own-theme.md)
+## Project documentation
 
-**The Rest**
+- [Server image specification](plans/omashiri.md): scope, work sequence, and completion criteria.
+- [Upstream integration policy](docs/omashiri-upstream.md): retained components, provenance, import procedure, and release boundaries.
+- [Testing reference](docs/testing.md): focused checks, companion repositories, and VM/acceptance suites.
+- [Contributor instructions](AGENTS.md): repository conventions and task guides.
 
-- [Mac support](manual/44-mac-support.md)
-- [Troubleshooting](manual/45-troubleshooting.md)
-- [FAQ](manual/46-faq.md)
-- [System snapshots](manual/47-system-snapshots.md)
-- [Security](manual/48-security.md)
-- [Omarchy on...](manual/49-omarchy-on.md)
-- [Dual Boot Install](manual/50-dual-boot-install.md)
-- [Unattended Installs](manual/51-unattended-installs.md)
+The existing [manual](manual/) describes upstream Omarchy, primarily its desktop experience. It is retained as upstream material and is not an Omashiri server installation guide. The earlier [Server Edition plan](plans/server.md) and [edition reference](docs/editions.md) document the inherited implementation; the Omashiri specification defines the intended product.
 
-## License
+## Development checks
 
-Omarchy is released under the [MIT License](https://opensource.org/licenses/MIT).
+Use Linux with Bash 5 and the dependencies required by the selected tests. Run focused checks for the area being changed and retain their complete output, for example:
+
+```bash
+bash test/shell.d/platform-packages-test.sh >/tmp/platform-packages.log 2>&1
+cat /tmp/platform-packages.log
+```
+
+Passing shell tests does not replace installing and booting the ISO in a disposable VM or validating updates and recovery.
+
+## License and attribution
+
+Released under the [MIT License](LICENSE). Omashiri derives from Omarchy by David Heinemeier Hansson and its contributors; the upstream copyright and license are preserved.

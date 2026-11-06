@@ -66,15 +66,32 @@ The inherited implementation still needs work before meeting that contract:
 - `bin/omarchy-channel-set` clones `omacom/omarchy` for development channels and selects the Omarchy runtime/settings package pairs.
 - `bin/omarchy-update-dev` fast-forwards the active checkout from its configured tracking remote.
 - `default/pacman/`, `bin/omarchy-refresh-pacman`, and `bin/omarchy-update-keyring` retain Omarchy package-source and trust assumptions.
-- `bin/omarchy-update` still calls shell integration and tool-update paths that need a headless dependency audit.
+- Desktop shell calls in `bin/omarchy-update` are now edition-gated. Its retained tool-update dependencies and the full server update path still require validation against the resolved package closure.
 - `.github/workflows/test.yml` uses an upstream desktop VM and upstream package recipes. Passing it does not prove a minimal server transaction or a fresh Omashiri install.
 
 The static audit of committed baseline `8ea1200ef371e2075c4efe14603a5b94b3e04574` also found that package selection alone does not bound the installed system: platform additions and hardware setup can install graphics, recording, and camera components. The package audit must include those paths and the external runtime/settings package dependencies.
 
-Remote access needs explicit integration. At this baseline, target-side service setup does not enable sshd, the firewall opens LocalSend ports rather than establishing SSH access, and owner provisioning copies authorized keys without invoking the existing SSH setup helper. Companion ISO behavior remains unverified. Resolve this through [first-boot work #11](https://github.com/omashiri/omashiri/issues/11), with authenticated access tested through the installed target.
+Server owner provisioning now enrolls staged public keys through the shared SSH setup helper. It validates the batch and effective key-only configuration, configures the selected SSH ports in UFW, and enables/reloads sshd only after the required checks. Missing keys or required setup failures retain pending provisioning for authenticated console recovery; the helper refuses live activation from an install chroot. Companion ISO key staging, native authentication/PAM, account ownership, live systemd/UFW behavior, and preservation of existing connections remain unverified. Complete [first-boot work #11](https://github.com/omashiri/omashiri/issues/11) with authenticated access through an installed VM target.
 
-The inherited safety behavior also needs an explicit release decision: snapshot creation failures can allow updates to continue, and the x86 boot dispatch does not itself verify boot artifacts. A successful update command therefore does not prove either a usable recovery snapshot or a bootable updated system. Preserve the existing safeguards while establishing and testing Omashiri's required snapshot and boot guarantees.
+Server updates now require the snapshot command to succeed before changing the checkout or installed packages; absent Snapper also stops the update. Desktop updates retain their optional snapshot behavior. The x86 boot dispatch still does not itself verify boot artifacts, and a successful snapshot command does not prove that recovery boots. Validate both snapshot recovery and the updated boot chain in a disposable VM before release.
 
 Track runtime package ownership in [#12](https://github.com/omashiri/omashiri/issues/12), publishing and trust in [#18](https://github.com/omashiri/omashiri/issues/18), and update/reinstall behavior in [#6](https://github.com/omashiri/omashiri/issues/6). Selected upstream package sources can remain dependencies where intentional and documented; independence does not require rebuilding every Arch package.
+
+## Runtime package boundary
+
+The recipe audit examined upstream `omacom/omarchy-pkgs` at `ceeeebabf593c07f27495b1d1cf775c059f60ab7` and the existing Omashiri package repository through `a62197d4ce14d331168f8529dee07129017ec640`. The latter already contains server/settings, SSH/firewall, boot/kernel, and publication work. Reuse it; the initial empty-repository description is historical.
+
+The next package change is an independent `omashiri-runtime`, matching source pins for the retained defaults in `omashiri-settings`, and a dependency from `omashiri-server`. Upstream runtime packages directly require the desktop stack, and their broad payload must not be copied wholesale with only the dependencies removed.
+
+Retain legacy command paths initially, including `/usr/share/omarchy`, because the security helpers validate that layout. Select the actual command and source-file closure: environment/Bash bootstrap, command libraries and i18n, reviewed setup/migrations, terminal theme inputs, platform boot dispatch, encryption/UKI templates, and snapshot recovery. Retarget the update ALPM guard's package dependency to the new runtime and omit graphical reload hooks. Optional passwordless-sudo grants require their revocation hooks, cleanup, and lifecycle handling together; omit the feature as a whole if it is not retained.
+
+Declare conflicts for overlapping upstream runtime/settings packages without advertising desktop compatibility through `provides=omarchy`. Preserve migration completion state and give every installed file one intentional owner. Version, channel, refresh, reinstall, and keyring commands must recognize the same runtime/settings owners and intended repositories.
+
+Two initialization boundaries require changes before a package build proves a usable image:
+
+- The inherited initramfs baseline includes Plymouth. Adapt the hooks before excluding that package, preserving keyboard, console, encryption, filesystem, and recovery support; verify the provider for `btrfs-overlayfs` as well.
+- Existing `omashiri-settings` owns `/etc/snapper/configs/root`, while retained setup creates the root Snapper configuration only when it is absent. Reconcile file ownership with filesystem/subvolume initialization so a preinstalled config cannot accidentally skip required setup.
+
+The audited publisher signs artifacts, but source PGP verification is skipped and recipes without build dependencies can skip dependency checks. A successful publication therefore does not prove source verification or runtime closure. Establish authenticated Omashiri key bootstrap, inspect built `.PKGINFO` and payloads, resolve the full installed transaction, check file ownership without an overwrite bypass, and test signed upgrades before claiming the package boundary is complete. Live repository contents, deployed signing identities, and complete architecture availability were not verified by the recipe audit.
 
 The first release must demonstrate install → authenticated console/SSH → update → reboot → SSH, plus snapper recovery and any retained encrypted-boot flow. Record package closure, source revisions, signatures, artifact checksums, installed size, idle memory, and validated platforms. Until these pass, describe the image as development work rather than a supported server release.

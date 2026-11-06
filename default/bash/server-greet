@@ -10,6 +10,8 @@ omarchy_server_greet() {
   # Not interactive: scp, sftp, rsync, ssh host <command>, and every script
   # that starts a shell. The single most important guard in the file.
   [[ $- == *i* ]] || return 0
+  [[ ! -e $HOME/.hushlogin ]] || return 0
+  [[ -z ${OMASHIRI_MOTD_SHOWN:-} ]] || return 0
 
   # Not a login shell: nested shells (bash, su, sudo -s) should not re-greet.
   shopt -q login_shell || return 0

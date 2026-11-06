@@ -126,7 +126,7 @@ reset_logs
 root=$(new_root real)
 write_manifest "$root"
 output=$(build "$root" "$ROOT") || fail "an image build defers the real hardware setup" "$output"
-expected=$(sed -n 's|^run_logged "\$OMARCHY_INSTALL/\(hardware/[^"]*\)"$|install/\1|p' "$ROOT/install/hardware/all.sh")
+expected=$(sed -n 's|^[[:space:]]*run_logged "\$OMARCHY_INSTALL/\(hardware/[^"]*\)"$|install/\1|p' "$ROOT/install/hardware/all.sh")
 [[ -n $expected && $(queue_of "$root") == "$expected" ]] ||
   fail "an image build queues every hardware leaf in order" "expected:
 $expected
@@ -136,6 +136,15 @@ $(queue_of "$root")"
 [[ $output == *"Image build for aarch64-apple: deferred $(wc -l <<<"$expected") hardware steps to first boot"* ]] ||
   fail "an image build reports what it deferred" "$output"
 pass "an image build queues every hardware leaf in order and runs none of them"
+
+server_edition="$test_tmp/server-edition"
+echo server >"$server_edition"
+server_root=$(new_root server)
+write_manifest "$server_root"
+OMARCHY_EDITION_FILE="$server_edition" build "$server_root" "$ROOT" >/dev/null || fail "a server image defers hardware setup"
+[[ $(queue_of "$server_root") == "$expected" && ! -e $LEAF_CALLS ]] ||
+  fail "server images queue all leaves without running them; edition guards belong in the leaves" "$(queue_of "$server_root")"
+pass "server images preserve the complete hardware queue"
 
 [[ $(<"$unit_source") == "$(<"$root/etc/systemd/system/$unit_name")" ]] ||
   fail "an image build installs the first-boot hardware service"
@@ -598,6 +607,12 @@ bt_first_boot() {
   OMARCHY_IMAGE_ROOT="$1" OMARCHY_PATH="$bt_fixture" OMARCHY_PROC_ROOT="$test_tmp/hw/proc" \
     PATH="$bt_path" "$ROOT/bin/omarchy-provision-hardware" >/dev/null 2>&1
 }
+
+root=$(bt_image server)
+OMARCHY_EDITION_FILE="$server_edition" bt_first_boot "$root" || fail "a server first boot finishes the queued Bluetooth leaf"
+[[ ! -e $SYSTEMCTL_CALLS && $(cat "$RUNS") == c && ! -e $root/var/lib/omarchy/image/deferred-steps ]] ||
+  fail "a server first boot skips Bluetooth and drains the queue"
+pass "a server first boot skips queued Bluetooth and continues hardware setup"
 
 started=$'enable bluetooth.service\nstart --no-block bluetooth.service'
 

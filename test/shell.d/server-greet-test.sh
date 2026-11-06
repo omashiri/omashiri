@@ -83,6 +83,16 @@ output=$(greet_on_pty OMARCHY_BBS_SESSION=1)
   fail "a shell opened from inside the front door does not greet again" "$output"
 pass "a nested shell inside the front door stays silent"
 
+output=$(greet_on_pty OMASHIRI_MOTD_SHOWN=1)
+[[ $output != *SPLASH* && $output != *MENU* ]] || fail "the MOTD is not followed by a duplicate greeting" "$output"
+pass "the MOTD replaces the legacy greeting"
+
+touch "$workdir/.hushlogin"
+output=$(greet_on_pty)
+[[ $output != *SPLASH* && $output != *MENU* ]] || fail "hushlogin suppresses the legacy greeting" "$output"
+rm "$workdir/.hushlogin"
+pass "hushlogin suppresses the legacy greeting"
+
 # ---- the edition and the mode --------------------------------------------
 
 printf 'desktop\n' >"$edition_file"

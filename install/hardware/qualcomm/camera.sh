@@ -1,3 +1,5 @@
+omarchy-edition-desktop || return 0
+
 # Snapdragon cameras run through libcamera, which apps reach through
 # PipeWire's libcamera backend.
 
