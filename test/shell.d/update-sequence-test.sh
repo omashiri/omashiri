@@ -53,7 +53,7 @@ fi
 if [[ ${0##*/} == "omarchy-shell" ]]; then
   printf '%s\n' "$*" >"$STEP_LOG.shell-args"
 fi
-[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit 1
+[[ ${FAILING_STEP:-} != "${0##*/}" ]] || exit "${FAILING_STATUS:-1}"
 STUB
   chmod +x "$stub_bin/$step"
 done
@@ -157,3 +157,19 @@ for step in omarchy-migrate omarchy-update-boot omarchy-update-restart; do
   grep -q "^$step " "$test_tmp/steps" || fail "a server update still runs $step"
 done
 pass "a server update skips desktop IPC while retaining migrations, boot verification and restart handling"
+
+for status in 1 127; do
+  if FAILING_STEP=omarchy-snapshot FAILING_STATUS=$status run_update -y; then
+    fail "a server update refuses a failed or unavailable recovery snapshot" "snapshot status $status"
+  fi
+  ! grep -Eq '^omarchy-(update-(dev|keyring|system-pkgs|restart)|migrate) ' "$test_tmp/steps" ||
+    fail "snapshot failure stops server updates before checkout, package or migration changes" "$(cat "$test_tmp/steps")"
+done
+pass "server updates stop before mutation when the recovery snapshot fails or is unavailable"
+
+printf 'desktop\n' >"$OMARCHY_EDITION_FILE"
+for status in 1 127; do
+  FAILING_STEP=omarchy-snapshot FAILING_STATUS=$status run_update -y ||
+    fail "desktop snapshot failures retain the existing update policy"
+done
+pass "desktop updates retain the existing optional snapshot policy"

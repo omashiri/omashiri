@@ -124,9 +124,9 @@ omarchy-update
   ├─ omarchy-update-pkg-prune
   │    └─ trim the pacman cache to two versions per package, deliberately
   │       before the snapshot since the cache lives on the snapshotted subvolume
-  ├─ create snapper snapshot (skipped silently without snapper; snapper
-  │  installed but unconfigured fails the snapshot loudly, pointing at
-  │  install/config/snapper.sh, and the update continues without one)
+  ├─ create snapper snapshot (required on servers; any failure stops the update
+  │  before checkout or package changes. Desktop updates skip absent snapper
+  │  and warn but continue on other snapshot errors)
   ├─ omarchy-update-stay-awake start
   ├─ run system-package updates
   ├─ restart the shell when migrations are pending, so they reach current code
