@@ -1,3 +1,5 @@
+omarchy-edition-desktop || return 0
+
 # Install the LV2 plugins that shipped speaker tunings need.
 #
 # Every tuning ends in a lookahead limiter, which is an LV2 plugin. Without it

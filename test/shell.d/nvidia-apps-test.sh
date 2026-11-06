@@ -4,6 +4,9 @@ source "$(dirname "$0")/base-test.sh"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 calls="$scratch/calls"
+export PATH="$ROOT/bin:$PATH"
+export OMARCHY_EDITION_FILE="$scratch/edition"
+echo desktop >"$OMARCHY_EDITION_FILE"
 
 run_setup() (
   failure=$1
@@ -39,3 +42,12 @@ set -e
 [[ $(<"$calls") == $'nvidia-ctk runtime configure --runtime=docker\nsystemctl enable dgx-dashboard.service\nsystemctl start --no-block dgx-dashboard.service' ]] ||
   fail "deferred setup starts Dashboard" "$(<"$calls")"
 pass "a refused Dashboard start does not fail deferred setup"
+
+for deferred in "" 1; do
+  echo server >"$OMARCHY_EDITION_FILE"
+  : > "$calls"
+  run_setup "" "$deferred"
+  [[ $(<"$calls") == 'nvidia-ctk runtime configure --runtime=docker' ]] ||
+    fail "server setup retains the NVIDIA container runtime without Dashboard" "$(<"$calls")"
+done
+pass "server setup retains NVIDIA container compute without enabling or starting Dashboard"

@@ -116,7 +116,11 @@ bios_version=$(cat /sys/class/dmi/id/bios_version 2>/dev/null || true)
 rm -f /etc/modprobe.d/nvidia.conf /etc/mkinitcpio.conf.d/nvidia.conf /etc/modprobe.d/omarchy-n1x-nvidia-disable.conf
 if [[ ! $bios_version =~ ^0\. ]]; then
   echo "N1x firmware $bios_version: GPU drives the panel"
-  omarchy-pkg-add linux-omarchy-nvidia-open nvidia-utils libva-nvidia-driver
+  PACKAGES=(linux-omarchy-nvidia-open nvidia-utils)
+  if omarchy-edition-desktop; then
+    PACKAGES+=(libva-nvidia-driver)
+  fi
+  omarchy-pkg-add "${PACKAGES[@]}"
   cat > /etc/modprobe.d/nvidia.conf <<'CONF'
 options nvidia_drm modeset=1 fbdev=1
 CONF

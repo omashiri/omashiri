@@ -7,13 +7,15 @@ elif lspci | grep -qi 'nvidia'; then
   # The 32-bit libraries come from multilib, which only x86_64 has.
   if omarchy-hw-nvidia-gsp; then
     PACKAGES=(linux-omarchy-nvidia-open nvidia-utils)
-    if omarchy-hw-x86; then
+    if omarchy-hw-x86 && omarchy-edition-desktop; then
       PACKAGES+=(lib32-nvidia-utils)
     fi
-    PACKAGES+=(libva-nvidia-driver)
+    if omarchy-edition-desktop; then
+      PACKAGES+=(libva-nvidia-driver)
+    fi
   elif omarchy-hw-nvidia-without-gsp; then
     PACKAGES=(nvidia-580xx-dkms nvidia-580xx-utils)
-    if omarchy-hw-x86; then
+    if omarchy-hw-x86 && omarchy-edition-desktop; then
       PACKAGES+=(lib32-nvidia-580xx-utils)
     fi
   fi
