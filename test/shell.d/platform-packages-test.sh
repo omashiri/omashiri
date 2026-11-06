@@ -10,6 +10,22 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export OMARCHY_PATH="$ROOT"
 export PATH="$ROOT/bin:$PATH"
+export OMARCHY_EDITION_FILE="$work/edition"
+
+printf 'invalid\n' >"$OMARCHY_EDITION_FILE"
+if omarchy-pkg-defaults x86 >"$work/invalid.packages" 2>"$work/invalid.err"; then
+  fail "an invalid edition cannot select desktop packages"
+fi
+[[ ! -s $work/invalid.packages ]] || fail "an invalid edition emits no package selection"
+pass "an invalid edition cannot select desktop packages"
+
+printf 'server\n' >"$OMARCHY_EDITION_FILE"
+defaults=$(omarchy-pkg-defaults x86)
+grep -Fxq lazyjournal <<<"$defaults" || fail "the server edition selects its package list"
+! grep -Fxq hyprland <<<"$defaults" || fail "the server edition excludes the desktop base"
+pass "the server edition selects its own defaults"
+
+printf 'desktop\n' >"$OMARCHY_EDITION_FILE"
 
 names() {
   sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$@"
@@ -137,6 +153,17 @@ printf 'refresh %s\n' "$*" >>"$STUB_LOG"
 [[ -z ${REFRESH_FAILS:-} ]]
 SH
 chmod +x "$work/stubs/"*
+
+printf 'invalid\n' >"$OMARCHY_EDITION_FILE"
+export STUB_LOG="$work/invalid-reinstall.log"
+: >"$STUB_LOG"
+if OMARCHY_PROC_ROOT="$work/x86/proc" PATH="$work/stubs:$work/x86/bin:$ROOT/bin:$PATH" \
+  omarchy-reinstall-pkgs >"$work/invalid-reinstall.out" 2>&1; then
+  fail "reinstall refuses an invalid edition"
+fi
+[[ ! -s $STUB_LOG ]] || fail "reinstall changes no repositories or packages for an invalid edition" "$(cat "$STUB_LOG")"
+pass "reinstall validates package selection before changing repositories or packages"
+printf 'desktop\n' >"$OMARCHY_EDITION_FILE"
 
 for platform in aarch64 x86; do
   export STUB_LOG="$work/$platform.log"

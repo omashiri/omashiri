@@ -5,6 +5,9 @@
 
 set -e
 
+default_packages=$(omarchy-pkg-defaults)
+mapfile -t packages <<<"$default_packages"
+
 # Reinstall all default Omarchy packages from the platform's default channel
 # (stable, or edge on Apple Silicon) and downgrade any packages that are too new.
 
@@ -18,8 +21,6 @@ omarchy-refresh-pacman "$channel"
 omarchy-update-pacman -Suu --noconfirm
 
 # Ensure this platform's default packages are installed
-default_packages=$(omarchy-pkg-defaults)
-mapfile -t packages <<<"$default_packages"
 # --ask 4 accepts removing a stock package a default replaces, such as
 # power-profiles-daemon for omarchy-power-profiles-daemon.
 omarchy-update-pacman -Syu --noconfirm --ask 4 --needed "${packages[@]}"
