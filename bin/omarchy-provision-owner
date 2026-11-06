@@ -755,6 +755,16 @@ create_user() {
 }
 
 install_authorized_keys() {
+  if omarchy-edition-server; then
+    if [[ ! -s $PROVISIONING_DIR/authorized_keys ]]; then
+      echo "Server SSH enrollment needs public keys in $PROVISIONING_DIR/authorized_keys." >&2
+      echo "Use the root recovery console to stage keys, then run omarchy-provision-owner --attempt." >&2
+      return 1
+    fi
+    omarchy-setup-security-sshd --user="$username" --authorized-keys="$PROVISIONING_DIR/authorized_keys"
+    return
+  fi
+
   [[ -f $PROVISIONING_DIR/authorized_keys ]] || return 0
 
   local ssh_dir="/home/$username/.ssh"
