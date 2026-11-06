@@ -898,3 +898,154 @@ run rekey "$owner_password" || fail "the re-key beside an earlier recovery slot 
 [[ -z $(opens "$staged_key") && -z $(opens "$seller_key") && -z $(opens recovery-key) && -n $(opens "$owner_password") && $(slot_count) == 1 ]] ||
   fail "every slot but the owner's is retired" "$(cat "$tmp/slots")"
 pass "the re-key retires every slot but the owner's, an earlier recovery slot included"
+
+# Exercise the console entry loop and real account/login setup against a scratch
+# root. No account tool or systemd command can reach the host.
+console=$tmp/console
+mkdir -p "$console/etc/sudoers.d" "$console/runtime/install/helpers" "$console/bin"
+sed -n '/^create_user() {/,/^}/p; /^configure_login() {/,/^}/p; /^install_autologin_once_cleanup() {/,/^}/p
+  /^attempt_setup() {/,/^}/p; /^main() {/,/^}/p' "$ROOT/bin/omarchy-provision-owner" |
+  sed "s|/etc/|$console/etc/|g; s|/var/lib/sddm|$console/sddm|g; s|exec /bin/bash|exec $console/bin/unauth-shell|g" >"$console/functions.sh"
+printf 'BROWSER_POLICY_MANAGED_DIRS=()\n' >"$console/runtime/install/helpers/browser-policy.sh"
+cat >"$console/bin/unauth-shell" <<'SH'
+#!/bin/bash
+echo unauth-shell >>"$CONSOLE/calls"
+exit 99
+SH
+chmod +x "$console/bin/unauth-shell"
+cat >"$console/entry.sh" <<'SH'
+#!/bin/bash
+set -euo pipefail
+source "$CONSOLE/functions.sh"
+PROVISIONING_DIR=$CONSOLE/provisioning
+OMARCHY_PATH=$CONSOLE/runtime
+LOG_FILE=$CONSOLE/log
+username=owner
+password=initial-secret
+say() { :; }
+set_tokyo_night_colors() { :; }
+greeter_screen() { :; }
+clear_logo() { :; }
+user_groups() { echo wheel; }
+getent() { [[ -f $CONSOLE/account ]]; }
+useradd() {
+  [[ -f $PROVISIONING_DIR/setup-user ]] || exit 91
+  [[ ! -f $CONSOLE/useradd-fail ]] || return 1
+  touch "$CONSOLE/account"
+}
+usermod() { :; }
+chpasswd() {
+  local account secret
+  while IFS=: read -r account secret; do
+    [[ -f $PROVISIONING_DIR/setup-user ]] || exit 92
+    [[ ! -f $CONSOLE/password-fail ]] || return 1
+    printf '%s' "$secret" >"$CONSOLE/$account-password"
+  done
+}
+gum() {
+  echo confirm >>"$CONSOLE/calls"
+  [[ $(grep -c '^confirm$' "$CONSOLE/calls") == 1 ]]
+}
+sulogin() {
+  printf 'sulogin:%s\n' "$*" >>"$CONSOLE/calls"
+  return 1
+}
+systemctl() { echo "systemctl:$*" >>"$CONSOLE/calls"; }
+omarchy-edition-server() { [[ $EDITION == server ]]; }
+encrypted_install() { [[ $ENCRYPTED == yes ]]; }
+chown() { :; }
+chmod() { :; }
+case ${1:-} in
+  --attempt)
+    echo attempt >>"$CONSOLE/calls"
+    [[ $MODE != pre-enrollment ]] || exit 1
+    [[ $(grep -c '^attempt$' "$CONSOLE/calls") == 1 ]] || password=attacker-secret
+    create_user
+    exit 1
+    ;;
+  login) configure_login ;;
+  *) main ;;
+esac
+SH
+chmod +x "$console/entry.sh"
+console_fixture() {
+  rm -rf "$console/provisioning"
+  mkdir -p "$console/provisioning"
+  touch "$console/provisioning/pending"
+  rm -f "$console/account" "$console/root-password" "$console/owner-password" "$console/useradd-fail" "$console/password-fail"
+  : >"$console/calls"
+}
+console_run() {
+  CONSOLE=$console EDITION=${edition:-server} ENCRYPTED=${encrypted:-yes} MODE=${console_mode:-enroll} \
+    "$console/entry.sh" "$@" >>"$console/output" 2>&1
+}
+for edition in server desktop; do
+  console_fixture
+  if console_run; then fail "$edition: failed setup cannot complete through an unauthenticated shell"; fi
+  [[ $(grep -c '^attempt$' "$console/calls") == 1 && $(cat "$console/root-password") == initial-secret &&
+    $(cat "$console/owner-password") == initial-secret ]] || fail "$edition: unauthenticated retry cannot replace account credentials" "$(cat "$console/calls" "$console/output")"
+  grep -qx 'sulogin:' "$console/calls" && grep -qx 'systemctl:reboot' "$console/calls" ||
+    fail "$edition: recovery invokes native authentication without force and offers reboot"
+  ! grep -q 'unauth-shell' "$console/calls" || fail "$edition: denied recovery never falls back to Bash"
+  pass "$edition: failed enrollment requires authenticated recovery before another attempt"
+done
+console_fixture
+console_mode=pre-enrollment
+if console_run; then fail "pre-enrollment failure stays pending"; fi
+[[ $(grep -c '^attempt$' "$console/calls") == 2 ]] && ! grep -q 'sulogin\|unauth-shell' "$console/calls" ||
+  fail "pre-enrollment permits controlled retries without a root shell"
+pass "pre-enrollment permits retry or reboot only"
+console_mode=enroll
+for interruption in useradd password; do
+  console_fixture
+  touch "$console/$interruption-fail"
+  if console_run; then fail "interrupted $interruption stays pending"; fi
+  [[ $(grep -c '^attempt$' "$console/calls") == 1 && -f $console/provisioning/setup-user ]] &&
+    grep -qx 'sulogin:' "$console/calls" && ! grep -q 'unauth-shell' "$console/calls" ||
+    fail "interrupted $interruption cannot reopen enrollment, including with locked root"
+  if [[ $interruption == useradd ]]; then
+    [[ $(cat "$console/root-password") == initial-secret ]] || fail "account creation failure retains root recovery credentials"
+  fi
+done
+console_fixture
+echo owner >"$console/provisioning/setup-user"
+if console_run; then fail "enrolled reboot stays pending after denied authentication"; fi
+! grep -q '^attempt$\|unauth-shell' "$console/calls" && grep -qx 'sulogin:' "$console/calls" ||
+  fail "an enrolled reboot authenticates before any credential mutation"
+! grep -q 'initial-secret\|attacker-secret' "$console/output" || fail "console recovery logs no passwords"
+pass "interrupted enrollment and reboot cannot bypass authentication even with locked root"
+
+edition=server
+getty=$console/etc/systemd/system/getty@tty1.service.d
+mkdir -p "$getty"
+for encrypted in yes no; do
+  console_run login || fail "server login configuration completes"
+  [[ ! -e $getty/autologin.conf && ! -e $console/sddm ]] || fail "servers create no console or desktop autologin"
+done
+cat >"$getty/autologin.conf" <<'CONF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin owner %I $TERM
+CONF
+console_run login || fail "server retry retires its old getty autologin"
+[[ ! -e $getty/autologin.conf ]] || fail "the old Omarchy getty autologin is removed"
+printf '[Service]\nEnvironment=ADMIN=1\n' >"$console/admin.conf"
+cp "$console/admin.conf" "$getty/autologin.conf"
+console_run login || fail "server retry accepts administrator config"
+cmp -s "$console/admin.conf" "$getty/autologin.conf" || fail "server retry preserves administrator config"
+rm "$getty/autologin.conf"
+ln -s "$console/admin.conf" "$getty/autologin.conf"
+console_run login || fail "server retry accepts administrator symlinks"
+[[ -L $getty/autologin.conf ]] && grep -qx 'Environment=ADMIN=1' "$console/admin.conf" ||
+  fail "server retry preserves symlinks and their targets"
+pass "servers require console login and retire only their exact old regular-file drop-in"
+for encrypted in yes no; do
+  edition=desktop
+  console_run login || fail "desktop login configuration completes"
+  grep -qx 'User=owner' "$console/etc/sddm.conf.d/autologin.conf" || fail "desktop keeps SDDM autologin"
+  if [[ $encrypted == no ]]; then
+    [[ -L $console/etc/systemd/system/graphical.target.wants/omarchy-provision-autologin-once.service ]] ||
+      fail "unencrypted desktop keeps one-boot autologin cleanup"
+  fi
+done
+pass "desktop keeps encrypted and one-boot SDDM behavior"
