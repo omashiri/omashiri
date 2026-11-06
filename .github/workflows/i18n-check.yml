@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   i18n-check:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
