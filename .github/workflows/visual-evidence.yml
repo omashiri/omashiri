@@ -39,7 +39,7 @@ concurrency:
 jobs:
   visual-evidence:
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.user.type != 'Bot' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 2
     steps:
       - name: Look for screenshots or a recording in the PR body
