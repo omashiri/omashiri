@@ -766,6 +766,7 @@ configure_login() {
   if omarchy-edition-server; then
     if encrypted_install; then
       mkdir -p /etc/systemd/system/getty@tty1.service.d
+      # omarchy:heredoc-expands paths=none -- $username is the account created by create_user, not an executable path
       cat >/etc/systemd/system/getty@tty1.service.d/autologin.conf <<CONF
 [Service]
 ExecStart=
