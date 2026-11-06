@@ -1,5 +1,7 @@
 # Plan: Omarchy Server — a headless edition with a BBS front door
 
+Historical Server Edition proposal, retained for its terminal interface design. Omashiri follows the [server image specification](omashiri.md) and [upstream integration policy](../docs/omashiri-upstream.md). The same-distribution and package-subtraction decisions below are superseded; backup and dots remain proposals rather than implemented server features.
+
 Revision 1.
 
 ## Problem
