@@ -66,7 +66,7 @@ The inherited implementation still needs work before meeting that contract:
 - `bin/omarchy-channel-set` clones `omacom/omarchy` for development channels and selects the Omarchy runtime/settings package pairs.
 - `bin/omarchy-update-dev` fast-forwards the active checkout from its configured tracking remote.
 - `default/pacman/`, `bin/omarchy-refresh-pacman`, and `bin/omarchy-update-keyring` retain Omarchy package-source and trust assumptions.
-- `bin/omarchy-update` still calls shell integration and tool-update paths that need a headless dependency audit.
+- Desktop shell calls in `bin/omarchy-update` are now edition-gated. Its retained tool-update dependencies and the full server update path still require validation against the resolved package closure.
 - `.github/workflows/test.yml` uses an upstream desktop VM and upstream package recipes. Passing it does not prove a minimal server transaction or a fresh Omashiri install.
 
 The static audit of committed baseline `8ea1200ef371e2075c4efe14603a5b94b3e04574` also found that package selection alone does not bound the installed system: platform additions and hardware setup can install graphics, recording, and camera components. The package audit must include those paths and the external runtime/settings package dependencies.
