@@ -2,6 +2,8 @@
 
 # omarchy:summary=Remove preinstalled Omarchy applications (web apps, TUIs, and selected packages).
 
+omarchy-edition-desktop || { echo "Preinstalled applications are desktop-only."; exit 1; }
+
 if gum confirm --affirmative "$(omarchy-i18n common.yes)" --negative "$(omarchy-i18n common.no)" "$(omarchy-i18n preinstalls.confirmRemove)"; then
   echo -e "Removing preinstalled Omarchy applications...\n"
 
